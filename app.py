@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- CONFIGURATION ---
 # Set your Go-Live date here. Only tickets created after this date are counted.
-OKR_GO_LIVE_DATE = "2026-03-01" 
+OKR_GO_LIVE_DATE = "2026-02-01" 
 
 # --- JIRA AUTH (Uses your existing secrets) ---
 JIRA_DOMAIN = st.secrets["JIRA_DOMAIN"]
