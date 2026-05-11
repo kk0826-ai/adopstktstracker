@@ -76,13 +76,14 @@ st.markdown(f"""
 def load_h1_data():
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     
-    # Flattened JQL to prevent newline/parsing errors in Jira API
+    # Flattened JQL to prevent newline/parsing errors. 
+    # Removed "Time to resolution" from ORDER BY to prevent Jira 400 Error
     jql = (
         'project = TKTS '
         'AND status IN ("Closed", "In Progress", "Open", "Reopened", "Resolved", "Waiting for customer", "Waiting for support", "Campaign/request closed") '
         'AND issuetype IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound") '
         f'AND created >= "{OKR_GO_LIVE_DATE}" '
-        'ORDER BY created DESC, "Time to resolution" ASC'
+        'ORDER BY created DESC'
     )
     
     fields = ["key", "issuetype", "assignee", "status"]
@@ -95,11 +96,14 @@ def load_h1_data():
         payload = {"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at}
         response = requests.post(url, json=payload, auth=JIRA_AUTH)
         
-        # Smart Error Catcher
+        # Clean Error Catcher - Prevents massive traceback walls
         if not response.ok:
-            error_msg = f"Jira API Error ({response.status_code}): {response.text}"
-            st.error(error_msg)
-            response.raise_for_status()
+            try:
+                error_details = response.json().get('errorMessages', [response.text])[0]
+            except:
+                error_details = response.text
+            st.error(f"Jira API Error: {error_details}")
+            st.stop() # Gracefully halt the app without crashing Streamlit
             
         data = response.json()
         
@@ -140,7 +144,7 @@ def build_progress_chart(share_val):
     
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
     
-    # The progress bar (removed the X-axis title text)
+    # The progress bar
     bar = alt.Chart(chart_data).mark_bar(size=30, cornerRadiusEnd=4).encode(
         x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None),
         color=alt.value(bar_color),
