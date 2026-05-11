@@ -7,7 +7,7 @@ from requests.auth import HTTPBasicAuth
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
 TRACKED_USER = "Jingyao Wang"
-TARGET_PERCENTAGE = 20.0  # The OKR Goal
+TARGET_PERCENTAGE = 20.0 
 
 # --- JIRA AUTH ---
 try:
@@ -16,14 +16,17 @@ try:
     JIRA_API_TOKEN = st.secrets["JIRA_API_TOKEN"]
     JIRA_AUTH = HTTPBasicAuth(JIRA_USER_EMAIL, JIRA_API_TOKEN)
 except Exception:
-    st.error("Jira secrets not found. Please add them to this app's settings.")
+    st.error("Jira secrets not found. Please add JIRA_DOMAIN, JIRA_USER_EMAIL, and JIRA_API_TOKEN to secrets.")
     st.stop()
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide", page_icon="✦")
 
-# Debug Mode Toggle (Visible only to you for troubleshooting)
-debug_mode = st.sidebar.checkbox("Show Debug Info")
+# 🛠️ DEBUG SIDEBAR 
+st.sidebar.header("Debug Menu")
+debug_mode = st.sidebar.checkbox("Enable Debug Mode", value=False)
+if debug_mode:
+    st.sidebar.info("Debug mode is ON. Look below for raw API details.")
 
 st.markdown("""
 <style>
@@ -62,43 +65,37 @@ st.markdown(f"""
 
 # --- 1. DATA LOADING (Safe Version) ---
 @st.cache_data(ttl=1800)
-def load_h1_data():
-    url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
-    jql = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}"'
+def load_h1_data(debug=False):
+    url = f"{JIRA_DOMAIN}/rest/api/3/search"
+    # Added ORDER BY created DESC to see the newest tickets first
+    jql = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}" ORDER BY created DESC'
     
     payload = {"jql": jql, "maxResults": 1000}
     response = requests.post(url, json=payload, auth=JIRA_AUTH)
     
-    if debug_mode:
-        st.sidebar.write(f"JQL Sent: `{jql}`")
-        st.sidebar.write(f"API Response Code: {response.status_code}")
+    if debug:
+        st.sidebar.write("### Raw API Stats")
+        st.sidebar.write(f"**JQL Sent:** `{jql}`")
+        st.sidebar.write(f"**HTTP Status:** {response.status_code}")
+        if response.status_code == 200:
+            st.sidebar.write(f"**Issues in JSON:** {len(response.json().get('issues', []))}")
 
     response.raise_for_status()
     data = response.json()
-    
     raw_issues = data.get('issues', [])
     
-    if debug_mode:
-        st.sidebar.write(f"Raw issues found: {len(raw_issues)}")
-
     done_statuses = ["closed", "done", "resolved", "campaign/request closed"]
     issues = []
     
     for i in raw_issues:
-        # Use .get() to prevent KeyError if 'fields' is missing/redacted
         f = i.get('fields')
-        if not f:
-            continue
+        if not f: continue # Skip redacted/restricted tickets
             
         fields_str = str(f).lower()
-        
         ticket_type = "Other"
-        if "celtra" in fields_str:
-            ticket_type = "Celtra"
-        elif "display" in fields_str:
-            ticket_type = "Display"
-        elif "video" in fields_str:
-            ticket_type = "Video"
+        if "celtra" in fields_str: ticket_type = "Celtra"
+        elif "display" in fields_str: ticket_type = "Display"
+        elif "video" in fields_str: ticket_type = "Video"
             
         assignee_dict = f.get('assignee')
         status_dict = f.get('status', {})
@@ -114,23 +111,29 @@ def load_h1_data():
 
 # --- 2. LOGIC & CALCULATIONS ---
 with st.spinner("Crunching OKR data..."):
-    df = load_h1_data()
+    # Pass debug state to the cached function
+    df = load_h1_data(debug=debug_mode)
 
 if df.empty:
     st.warning(f"⚠️ No tickets found in project **TKTS** created since **{OKR_GO_LIVE_DATE}**.")
-    st.info("Check if the Project Key is correct and if tickets actually exist within that date range in Jira.")
+    st.info("""
+    **Possible reasons:**
+    1. **Date Range:** There are truly no tickets created in the last few weeks.
+    2. **Project Key:** Is the project key exactly `TKTS`?
+    3. **Permissions:** Your API token user might not have 'Browse Projects' permission for this specific project.
+    """)
+    if st.button("Try testing with an older date (2024-01-01)"):
+        st.info("To change this permanently, update `OKR_GO_LIVE_DATE` in your code.")
     st.stop()
 
 # Helper function to generate premium charts
 def build_progress_chart(share_val):
     bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#FFCA28' 
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
-    
     bar = alt.Chart(chart_data).mark_bar(size=30, cornerRadiusEnd=4).encode(
         x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None),
         color=alt.value(bar_color)
     ).properties(height=80)
-    
     goal_line = alt.Chart(chart_data).mark_rule(color='#FF5252', strokeWidth=3, strokeDash=[4,4]).encode(x='Goal:Q')
     return (bar + goal_line).configure_view(strokeWidth=0)
 
@@ -139,12 +142,10 @@ categories = ["Display", "Video", "Celtra"]
 
 # --- 3. UI DISPLAY (CARDS) ---
 cols = st.columns(3)
-
 for idx, category in enumerate(categories):
     with cols[idx]:
         with st.container(border=True):
             st.subheader(f"✦ {category}")
-            
             cat_df = df[df['type'] == category]
             total_pool = len(cat_df)
             user_closed = len(cat_df[(cat_df['assignee'] == TRACKED_USER) & (cat_df['is_closed'])])
@@ -152,16 +153,15 @@ for idx, category in enumerate(categories):
             
             m1, m2, m3 = st.columns(3)
             m1.metric("Share %", f"{share:.1f}%", delta=f"{(share - TARGET_PERCENTAGE):.1f}%" if share > 0 else None)
-            m2.metric("Jingyao Done", user_closed)
+            m2.metric("User Done", user_closed)
             m3.metric("Team Total", total_pool)
             
             if total_pool > 0:
                 st.altair_chart(build_progress_chart(share), use_container_width=True)
             else:
-                st.info(f"No {category} tickets found.")
+                st.info(f"No {category} tickets yet.")
 
 st.divider()
-
 # --- 4. DATA TABLE ---
 st.markdown("### 📋 Detail Summary")
 summary_data = []
@@ -170,7 +170,6 @@ for category in categories:
     total_pool = len(cat_df)
     user_closed = len(cat_df[(cat_df['assignee'] == TRACKED_USER) & (cat_df['is_closed'])])
     share = (user_closed / total_pool * 100) if total_pool > 0 else 0
-    
     summary_data.append({
         "Category": category,
         "Total Team Tickets": total_pool,
@@ -178,5 +177,4 @@ for category in categories:
         "Current OKR Share": f"{share:.1f}%",
         "Target Status": "✅ On Track" if share >= TARGET_PERCENTAGE else "⏳ Needs Attention"
     })
-
 st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
