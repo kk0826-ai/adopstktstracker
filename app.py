@@ -75,12 +75,11 @@ st.markdown(f"""
 # --- 1. DATA LOADING WITH PAGINATION ---
 @st.cache_data(ttl=1800) # Caches for 30 mins
 def load_h1_data():
-    url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
+    # Standard search endpoint (handles pagination better)
+    url = f"{JIRA_DOMAIN}/rest/api/3/search"
     
-    # Required by Jira to understand the payload
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     
-    # Using your exact JQL string, injecting the date variable
     jql = f"""
     project = TKTS
     and status IN (Closed, "In Progress", Open, Reopened, Resolved, "Waiting for customer", "Waiting for support", "Campaign/request closed")
@@ -93,14 +92,20 @@ def load_h1_data():
     
     issues = []
     start_at = 0
-    max_results = 100 # Jira API pagination limit
+    max_results = 100 
+    
+    import json 
     
     while True:
-        # Proper JSON encoding using json.dumps
         payload = json.dumps({"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at})
-        response = requests.post(url, headers=headers, data=payload, auth=JIRA_AUTH)
         
-        # Clean Error Catcher
+        # 1. Added a 15-second timeout to stop indefinite hanging
+        try:
+            response = requests.post(url, headers=headers, data=payload, auth=JIRA_AUTH, timeout=15)
+        except requests.exceptions.RequestException as e:
+            st.error(f"Network Connection Failed: {e}")
+            st.stop()
+        
         if not response.ok:
             try:
                 error_details = response.json().get('errorMessages', [response.text])[0]
@@ -114,12 +119,14 @@ def load_h1_data():
         batch = data.get('issues', [])
         issues.extend(batch)
         
-        if len(batch) < max_results:
-            break 
-            
+        # 2. Smart pagination: use Jira's 'total' count to know exactly when to stop
+        total_expected = data.get('total', 0)
         start_at += max_results
+        
+        # 3. Fail-safes: Break if we hit the total, if the batch is empty, or a hard limit of 10,000 tickets
+        if start_at >= total_expected or len(batch) == 0 or start_at > 10000:
+            break 
 
-    # Process statuses to identify completed tickets
     closed_statuses = ["closed", "done", "resolved", "campaign/request closed"]
     
     processed_issues = []
