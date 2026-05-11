@@ -23,16 +23,20 @@ except Exception:
 # --- PAGE CONFIG ---
 st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
-# --- CUSTOM CSS (Safely Targeted Sharp Edges) ---
+# --- CUSTOM CSS (Using your exact working selectors) ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap');
 
 html, body, [class*="st-"] { 
-    font-family: 'Manrope', sans-serif; 
+    font-family: 'Manrope', Arial, sans-serif; 
+    font-weight: 300; 
+}
+h1, h2, h3, h4, h5, h6 { 
+    font-family: 'Manrope', Arial, sans-serif !important; 
 }
 
-/* Hero Banner */
+/* Hero Banner (Shorter height) */
 .header-container { 
     padding: 1.2rem; 
     background-image: linear-gradient(rgba(14, 17, 23, 0.6), rgba(14, 17, 23, 0.8)), url('https://i.ibb.co/nMTJF4B9/vj-HZbu8-Imgur.jpg'); 
@@ -44,14 +48,16 @@ html, body, [class*="st-"] {
 }
 .header-container h1 { color: #FFFFFF !important; font-size: 2.2rem; font-weight: 600; margin: 0; padding: 0;}
 
-/* Flat UI Enforcements (Safe targeting) */
-/* Targets the explicit bordered containers you create */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    border-radius: 0px !important;
+/* Flat UI Enforcements (Copied directly from your working tool) */
+div[data-testid="stContainer"], 
+div[data-testid="stTabs"], 
+div[data-testid="stMarkdownContainer"], 
+div[data-testid="stVerticalBlock"], 
+div[data-testid="stMetric"] { 
+    border-radius: 0px !important; 
 }
-/* Targets the expander box */
-div[data-testid="stExpander"] details {
-    border-radius: 0px !important;
+button { 
+    border-radius: 0px !important; 
 }
 
 /* Custom Metric Styling */
