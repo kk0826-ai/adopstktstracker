@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import altair as alt
 from requests.auth import HTTPBasicAuth
+from datetime import datetime
 
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
@@ -20,7 +21,7 @@ except Exception:
     st.stop()
 
 # --- PAGE CONFIG & CUSTOM CSS (Premium UI) ---
-st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide", page_icon="✦")
+st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide", page_icon="🎯")
 
 st.markdown("""
 <style>
@@ -34,7 +35,7 @@ html, body, [class*="st-"] {
 .header-box {
     background: linear-gradient(90deg, #0f2027, #203a43, #2c5364);
     padding: 20px;
-    border-radius: 4px;
+    border-radius: 8px;
     color: white;
     margin-bottom: 25px;
 }
@@ -65,51 +66,31 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-box">
-    <h1>✦ {TRACKED_USER}'s H1 OKR Tracker</h1>
+    <h1>🎯 {TRACKED_USER}'s H1 OKR Tracker</h1>
     <p>Tracking Live Market Share for Display, Video, and Celtra (From {OKR_GO_LIVE_DATE})</p>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 1. DATA LOADING (Using your exact working API setup) ---
+# --- 1. DATA LOADING ---
 @st.cache_data(ttl=1800) # Caches for 30 mins
 def load_h1_data():
-    # Your exact working URL and JQL
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     jql = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}"'
+    fields = ["key", "issuetype", "assignee", "status", "resolutiondate"]
     
-    # Removed the "fields" restriction so Jira sends us all the custom fields
-    payload = {"jql": jql, "maxResults": 1000}
+    payload = {"jql": jql, "fields": fields, "maxResults": 1000}
     response = requests.post(url, json=payload, auth=JIRA_AUTH)
     response.raise_for_status()
-    
-    # Adding the specific status that was missing Jingyao's work
-    done_statuses = ["closed", "done", "resolved", "campaign/request closed"]
     
     issues = []
     for i in response.json().get('issues', []):
         f = i['fields']
-        
-        # DATA FIX: We turn the entire ticket fields into a lowercase string.
-        # This guarantees we find "celtra" even if it's hidden in "Customer Request Type"
-        fields_str = str(f).lower()
-        
-        ticket_type = "Other"
-        if "celtra" in fields_str:
-            ticket_type = "Celtra"
-        elif "display" in fields_str:
-            ticket_type = "Display"
-        elif "video" in fields_str:
-            ticket_type = "Video"
-            
-        assignee_dict = f.get('assignee')
-        status_dict = f.get('status', {})
-        
         issues.append({
             "key": i['key'],
-            "type": ticket_type,
-            "assignee": assignee_dict['displayName'] if assignee_dict else "Unassigned",
-            "is_closed": status_dict.get('name', '').lower() in done_statuses
+            "type": f['issuetype']['name'],
+            "assignee": f['assignee']['displayName'] if f['assignee'] else "Unassigned",
+            "is_closed": f['status']['name'].lower() in ["closed", "done", "resolved"]
         })
     return pd.DataFrame(issues)
 
@@ -122,14 +103,14 @@ if df.empty:
     st.stop()
 
 # Helper function to generate premium charts
-def build_progress_chart(share_val):
-    bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#FFCA28' 
+def build_progress_chart(share_val, title):
+    bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#FFCA28' # Green if hit, Yellow if under
     
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
     
     # The actual progress bar
     bar = alt.Chart(chart_data).mark_bar(size=30, cornerRadiusEnd=4).encode(
-        x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None),
+        x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title="Current Market Share %"),
         color=alt.value(bar_color),
         tooltip=[alt.Tooltip('Share:Q', format='.1f', title='Current %')]
     ).properties(height=80)
@@ -151,10 +132,10 @@ cols = st.columns(3)
 for idx, category in enumerate(categories):
     with cols[idx]:
         with st.container(border=True):
-            st.subheader(f"✦ {category}")
+            st.subheader(f"📊 {category}")
             
             # Filter Data
-            cat_df = df[df['type'] == category]
+            cat_df = df[df['type'].str.contains(category, case=False)]
             total_pool = len(cat_df)
             user_closed = len(cat_df[(cat_df['assignee'] == TRACKED_USER) & (cat_df['is_closed'])])
             
@@ -169,7 +150,7 @@ for idx, category in enumerate(categories):
             
             # Chart
             if total_pool > 0:
-                st.altair_chart(build_progress_chart(share), use_container_width=True)
+                st.altair_chart(build_progress_chart(share, category), use_container_width=True)
             else:
                 st.info(f"No {category} tickets raised yet.")
 
@@ -181,7 +162,7 @@ st.caption("A quick look at the raw numbers powering the charts above.")
 
 summary_data = []
 for category in categories:
-    cat_df = df[df['type'] == category]
+    cat_df = df[df['type'].str.contains(category, case=False)]
     total_pool = len(cat_df)
     user_closed = len(cat_df[(cat_df['assignee'] == TRACKED_USER) & (cat_df['is_closed'])])
     share = (user_closed / total_pool * 100) if total_pool > 0 else 0
