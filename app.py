@@ -44,45 +44,54 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 1. DATA LOADING (With Pagination) ---
+# --- 1. DATA LOADING (Robust Pagination) ---
 @st.cache_data(ttl=600) 
 def load_h1_data():
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
+    # Note: We query specifically for the fields we need to keep the data payload small
     jql_query = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}"'
     
     all_issues = []
     start_at = 0
-    max_results = 100 # Standard page size
+    max_results = 50 # Smaller chunks to prevent HTTP timeouts
     
-    # Progress bar for loading large datasets
-    load_progress = st.progress(0, text="Fetching all tickets from Jira...")
+    load_progress = st.progress(0, text="Connecting to Jira...")
     
-    while True:
-        payload = {
-            "jql": jql_query, 
-            "startAt": start_at,
-            "maxResults": max_results,
-            "fields": ["assignee", "status", "summary", "customfield_10010"] # 10010 is usually Request Type
-        }
-        
-        response = requests.post(url, json=payload, auth=JIRA_AUTH)
-        response.raise_for_status()
-        data = response.json()
-        
-        issues = data.get('issues', [])
-        all_issues.extend(issues)
-        
-        total = data.get('total', 0)
-        start_at += max_results
-        
-        # Update progress
-        if total > 0:
-            percent = min(len(all_issues) / total, 1.0)
-            load_progress.progress(percent, text=f"Downloaded {len(all_issues)} of {total} tickets...")
-
-        if len(all_issues) >= total or not issues:
-            break
+    try:
+        while True:
+            payload = {
+                "jql": jql_query, 
+                "startAt": start_at,
+                "maxResults": max_results,
+                "fields": ["assignee", "status", "summary", "issuetype", "customfield_10010"] 
+            }
             
+            response = requests.post(url, json=payload, auth=JIRA_AUTH)
+            
+            # If a specific page fails, show the error but return what we have so far
+            if response.status_code != 200:
+                st.error(f"Jira API error on batch starting at {start_at}: {response.status_code}")
+                break
+
+            data = response.json()
+            issues = data.get('issues', [])
+            if not issues:
+                break
+                
+            all_issues.extend(issues)
+            total = data.get('total', 0)
+            
+            # Update UI
+            percent = min(len(all_issues) / total, 1.0) if total > 0 else 1.0
+            load_progress.progress(percent, text=f"Syncing: {len(all_issues)} / {total} tickets...")
+            
+            start_at += max_results
+            if len(all_issues) >= total:
+                break
+                
+    except Exception as e:
+        st.warning(f"Data sync interrupted: {e}. Showing partial results.")
+
     load_progress.empty()
     
     done_statuses = ["closed", "done", "resolved", "campaign/request closed"]
@@ -91,17 +100,18 @@ def load_h1_data():
     for i in all_issues:
         f = i.get('fields', {})
         
-        # String of all fields to catch keywords
-        fields_str = str(f).lower()
+        # We prioritize "Customer Request Type" for classification to match your CSV
+        # Then we fall back to the Summary text.
+        req_type = str(f.get('customfield_10010', '')).lower()
+        summary = str(f.get('summary', '')).lower()
+        combined_context = f"{req_type} {summary}"
         
-        # CATEGORIZATION LOGIC (Refined to match your sheet)
-        # We look for the "Creatives" patterns found in your CSV
         ticket_type = "Other"
-        if "celtra" in fields_str:
+        if "celtra" in combined_context:
             ticket_type = "Celtra"
-        elif "display" in fields_str:
+        elif "display" in combined_context:
             ticket_type = "Display"
-        elif "video" in fields_str:
+        elif "video" in combined_context:
             ticket_type = "Video"
             
         assignee_dict = f.get('assignee')
@@ -117,10 +127,11 @@ def load_h1_data():
     return pd.DataFrame(parsed_data)
 
 # --- 2. LOGIC ---
-df = load_h1_data()
+with st.spinner("Crunching numbers..."):
+    df = load_h1_data()
 
 if df.empty:
-    st.warning("No tickets found. Check date range.")
+    st.warning("No data found. Check your Jira permissions or Project Key.")
     st.stop()
 
 # Progress Chart Function
@@ -150,10 +161,12 @@ for idx, category in enumerate(categories):
             m1, m2, m3 = st.columns(3)
             m1.metric("Share %", f"{share:.1f}%")
             m2.metric("Done", user_closed)
-            m3.metric("Total", total_pool)
+            m3.metric("Team Total", total_pool)
             
             if total_pool > 0:
                 st.altair_chart(build_progress_chart(share), use_container_width=True)
+            else:
+                st.caption(f"No {category} tickets found.")
 
 st.divider()
 st.markdown("### 📋 Detailed Summary")
@@ -163,6 +176,6 @@ for cat in categories:
     t = len(c_df)
     u = len(c_df[(c_df['assignee'] == TRACKED_USER) & (c_df['is_closed'])])
     s = (u / t * 100) if t > 0 else 0
-    summary_list.append({"Category": cat, "Team Total": t, "Your Done": u, "Share": f"{s:.1f}%"})
+    summary_list.append({"Category": cat, "Team Total": t, "Your Done": u, "Current Share": f"{s:.1f}%"})
 
 st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
