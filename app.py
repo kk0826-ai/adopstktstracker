@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import altair as alt
+import json
 from requests.auth import HTTPBasicAuth
 
 # --- CONFIGURATION ---
@@ -76,15 +77,17 @@ st.markdown(f"""
 def load_h1_data():
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     
-    # Flattened JQL to prevent newline/parsing errors. 
-    # Removed "Time to resolution" from ORDER BY to prevent Jira 400 Error
-    jql = (
-        'project = TKTS '
-        'AND status IN ("Closed", "In Progress", "Open", "Reopened", "Resolved", "Waiting for customer", "Waiting for support", "Campaign/request closed") '
-        'AND issuetype IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound") '
-        f'AND created >= "{OKR_GO_LIVE_DATE}" '
-        'ORDER BY created DESC'
-    )
+    # Required by Jira to understand the payload
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    
+    # Using your exact JQL string, injecting the date variable
+    jql = f"""
+    project = TKTS
+    and status IN (Closed, "In Progress", Open, Reopened, Resolved, "Waiting for customer", "Waiting for support", "Campaign/request closed")
+    and type IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound")
+    and created >= "{OKR_GO_LIVE_DATE}"
+    ORDER BY created DESC
+    """
     
     fields = ["key", "issuetype", "assignee", "status"]
     
@@ -93,17 +96,18 @@ def load_h1_data():
     max_results = 100 # Jira API pagination limit
     
     while True:
-        payload = {"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at}
-        response = requests.post(url, json=payload, auth=JIRA_AUTH)
+        # Proper JSON encoding using json.dumps
+        payload = json.dumps({"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at})
+        response = requests.post(url, headers=headers, data=payload, auth=JIRA_AUTH)
         
-        # Clean Error Catcher - Prevents massive traceback walls
+        # Clean Error Catcher
         if not response.ok:
             try:
                 error_details = response.json().get('errorMessages', [response.text])[0]
             except:
                 error_details = response.text
             st.error(f"Jira API Error: {error_details}")
-            st.stop() # Gracefully halt the app without crashing Streamlit
+            st.stop()
             
         data = response.json()
         
@@ -144,7 +148,7 @@ def build_progress_chart(share_val):
     
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
     
-    # The progress bar
+    # The progress bar (removed the X-axis title text)
     bar = alt.Chart(chart_data).mark_bar(size=30, cornerRadiusEnd=4).encode(
         x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None),
         color=alt.value(bar_color),
