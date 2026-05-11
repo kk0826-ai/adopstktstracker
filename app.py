@@ -76,14 +76,14 @@ st.markdown(f"""
 def load_h1_data():
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     
-    # Using your exact comprehensive JQL with the Go-Live Date injected
-    jql = f"""
-        project = TKTS
-        AND status IN (Closed, "In Progress", Open, Reopened, Resolved, "Waiting for customer", "Waiting for support", "Campaign/request closed")
-        AND issuetype IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound")
-        AND created >= "{OKR_GO_LIVE_DATE}"
-        ORDER BY created DESC
-    """
+    # Flattened JQL to prevent newline/parsing errors in Jira API
+    jql = (
+        'project = TKTS '
+        'AND status IN ("Closed", "In Progress", "Open", "Reopened", "Resolved", "Waiting for customer", "Waiting for support", "Campaign/request closed") '
+        'AND issuetype IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound") '
+        f'AND created >= "{OKR_GO_LIVE_DATE}" '
+        'ORDER BY created DESC, "Time to resolution" ASC'
+    )
     
     fields = ["key", "issuetype", "assignee", "status"]
     
@@ -91,18 +91,23 @@ def load_h1_data():
     start_at = 0
     max_results = 100 # Jira API pagination limit
     
-    # Loop to fetch all pages of tickets so nothing is cut off
     while True:
         payload = {"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at}
         response = requests.post(url, json=payload, auth=JIRA_AUTH)
-        response.raise_for_status()
+        
+        # Smart Error Catcher
+        if not response.ok:
+            error_msg = f"Jira API Error ({response.status_code}): {response.text}"
+            st.error(error_msg)
+            response.raise_for_status()
+            
         data = response.json()
         
         batch = data.get('issues', [])
         issues.extend(batch)
         
         if len(batch) < max_results:
-            break # Reached the last page
+            break 
             
         start_at += max_results
 
