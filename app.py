@@ -9,9 +9,9 @@ OKR_GO_LIVE_DATE = "2026-04-01"
 TRACKED_USER = "Jingyao Wang"
 TARGET_PERCENTAGE = 20.0 
 
-# --- JIRA AUTH ---
+# --- JIRA AUTH & URL SANITIZATION ---
 try:
-    # Ensure domain is clean (removes trailing slashes and extra paths)
+    # Clean the domain to ensure it's just 'https://company.atlassian.net'
     RAW_DOMAIN = st.secrets["JIRA_DOMAIN"].strip().rstrip('/')
     if "/rest/api" in RAW_DOMAIN:
         JIRA_DOMAIN = RAW_DOMAIN.split("/rest/api")[0]
@@ -23,7 +23,7 @@ try:
     JIRA_AUTH = HTTPBasicAuth(JIRA_USER_EMAIL, JIRA_API_TOKEN)
 except Exception as e:
     st.error(f"Configuration Error: {e}")
-    st.info("Ensure JIRA_DOMAIN, JIRA_USER_EMAIL, and JIRA_API_TOKEN are in your Secrets.")
+    st.info("Ensure JIRA_DOMAIN, JIRA_USER_EMAIL, and JIRA_API_TOKEN are in your Streamlit Secrets.")
     st.stop()
 
 # --- PAGE CONFIG ---
@@ -68,46 +68,47 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 1. DATA LOADING ---
-@st.cache_data(ttl=600) # Caches for 10 mins
+# --- 1. DATA LOADING (Updated for /search/jql API) ---
+@st.cache_data(ttl=600) 
 def load_h1_data(debug=False):
-    # Constructing URL: https://company.atlassian.net/rest/api/3/search
-    url = f"{JIRA_DOMAIN}/rest/api/3/search"
-    jql = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}" ORDER BY created DESC'
+    # Using the mandatory Jira V3 JQL endpoint
+    url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
+    jql_query = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}" ORDER BY created DESC'
     
     payload = {
-        "jql": jql, 
+        "jql": jql_query, 
         "maxResults": 1000,
-        "fields": ["assignee", "status", "summary", "issuetype", "customfield_10010"] 
+        "fields": ["assignee", "status", "summary", "issuetype"] 
     }
     
     response = requests.post(url, json=payload, auth=JIRA_AUTH)
     
     if debug:
-        st.sidebar.write("### API Connection")
+        st.sidebar.write("### API Connection (V3 JQL)")
         st.sidebar.write(f"**Target URL:** `{url}`")
         st.sidebar.write(f"**HTTP Status:** {response.status_code}")
-        if response.status_code == 200:
-            st.sidebar.success(f"Found {len(response.json().get('issues', []))} issues")
-        else:
-            st.sidebar.error(f"Error Body: {response.text[:200]}")
+        if response.status_code != 200:
+            st.sidebar.error(f"Response Body: {response.text}")
 
-    if response.status_code in [404, 410]:
-        st.error("Jira endpoint not found. Please verify your JIRA_DOMAIN secret.")
-        st.stop()
-        
     response.raise_for_status()
     data = response.json()
     raw_issues = data.get('issues', [])
+    
+    if debug:
+        st.sidebar.success(f"Retrieved {len(raw_issues)} issues from Jira.")
     
     done_statuses = ["closed", "done", "resolved", "campaign/request closed"]
     issues = []
     
     for i in raw_issues:
+        # Prevent KeyError if fields are redacted or missing
         f = i.get('fields')
-        if not f: continue 
+        if not f: 
+            continue 
             
         fields_str = str(f).lower()
+        
+        # Categorization Logic
         ticket_type = "Other"
         if "celtra" in fields_str: ticket_type = "Celtra"
         elif "display" in fields_str: ticket_type = "Display"
@@ -131,10 +132,10 @@ with st.spinner("Syncing with Jira..."):
 
 if df.empty:
     st.warning(f"⚠️ No tickets found in project **TKTS** since **{OKR_GO_LIVE_DATE}**.")
-    st.info("If you see this but know tickets exist, check if the Project Key is exactly `TKTS` and that your API token has 'Browse Project' permissions.")
+    st.info("If tickets exist, check your Project Key and ensure the API Token user has permissions to view them.")
     st.stop()
 
-# Progress Chart Function
+# Chart Helper
 def build_progress_chart(share_val):
     bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#FFCA28' 
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
@@ -166,7 +167,7 @@ for idx, category in enumerate(categories):
             if total_pool > 0:
                 st.altair_chart(build_progress_chart(share), use_container_width=True)
             else:
-                st.caption(f"No {category} tickets found in this period.")
+                st.caption(f"No {category} tickets found.")
 
 st.divider()
 
