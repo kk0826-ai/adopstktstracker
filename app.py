@@ -80,7 +80,12 @@ button {
     letter-spacing: 1px;
 }
 
-/* Scrollable HTML Table for Audit Log */
+/* Custom HTML Tables */
+.static-table {
+    border: 1px solid rgba(250, 250, 250, 0.2);
+    border-radius: 0px !important; /* Sharp edges */
+    margin-bottom: 1.5rem;
+}
 .scrollable-table {
     height: 400px;
     overflow-y: auto;
@@ -202,7 +207,6 @@ for issue in raw_issues:
     status_name = fields.get('status', {}).get('name', '').lower()
     is_closed = (status_name in DONE_STATUSES) or (fields.get('resolutiondate') is not None)
     
-    # Updated Column Names Here
     rows.append({
         "TKTS-ID": issue.get('key'),
         "TKTS-Type": issue_type_name,
@@ -278,20 +282,17 @@ for cat in categories:
         "Status": "On Track" if share_val >= TARGET_PERCENTAGE else "Needs Attention"
     })
 
+# Convert Summary DataFrame to custom HTML Table
 summary_df = pd.DataFrame(summary_list)
-summary_df.set_index("Category", inplace=True)
-st.table(summary_df)
+summary_html = summary_df.to_html(index=False, classes="custom-audit-table", escape=False)
+st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html=True)
 
-st.write("")
 
-# --- 6. AUDIT LOG (HTML Table to remove sorting & ensure sharp edges) ---
+# --- 6. AUDIT LOG ---
 st.markdown("### Ticket Audit Log")
 
-# Filter out 'Other' category and drop the internal boolean column
 audit_df = df[df['Category'] != "Other"].drop(columns=['Is_Closed'])
 
-# Convert DataFrame to raw HTML to bypass Streamlit's native ascending/descending arrows
-html_table = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
-
-# Render inside a custom scrollable div with razor-sharp edges
-st.markdown(f'<div class="scrollable-table">{html_table}</div>', unsafe_allow_html=True)
+# Convert Audit DataFrame to custom HTML Table
+audit_html = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
+st.markdown(f'<div class="scrollable-table">{audit_html}</div>', unsafe_allow_html=True)
