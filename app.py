@@ -251,9 +251,24 @@ for cat in categories:
         "Target": f"{TARGET_PERCENTAGE}%",
         "Status": "On Track" if share_val >= TARGET_PERCENTAGE else "Needs Attention"
     })
-st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
+
+# Setting 'Category' as the index removes the numbered index on the left
+# and using st.table() displays it as a static table (removes ascending/descending arrows)
+summary_df = pd.DataFrame(summary_list)
+summary_df.set_index("Category", inplace=True)
+st.table(summary_df)
 
 st.write("")
-with st.expander("Ticket Audit Log"):
-    st.write("Review raw ticket assignments")
-    st.dataframe(df[df['Category'] != "Other"], use_container_width=True, hide_index=True)
+
+# --- 6. AUDIT LOG (Always visible with scrollbar) ---
+st.markdown("### Ticket Audit Log")
+st.write("Review raw ticket assignments")
+
+# Setting height=400 natively adds a vertical scrollbar on the side 
+# and setting hide_index=True keeps the table clean.
+st.dataframe(
+    df[df['Category'] != "Other"], 
+    use_container_width=True, 
+    hide_index=True, 
+    height=400 
+)
