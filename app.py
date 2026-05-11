@@ -23,7 +23,7 @@ except Exception:
 # --- PAGE CONFIG ---
 st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
-# --- CUSTOM CSS (Sleek & Sharp Edges) ---
+# --- CUSTOM CSS (Safely Targeted Sharp Edges) ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap');
@@ -32,9 +32,9 @@ html, body, [class*="st-"] {
     font-family: 'Manrope', sans-serif; 
 }
 
-/* Hero Banner (Shorter height) */
+/* Hero Banner */
 .header-container { 
-    padding: 1.2rem; /* Reduced padding to shorten height */
+    padding: 1.2rem; 
     background-image: linear-gradient(rgba(14, 17, 23, 0.6), rgba(14, 17, 23, 0.8)), url('https://i.ibb.co/nMTJF4B9/vj-HZbu8-Imgur.jpg'); 
     background-size: cover; 
     background-position: center; 
@@ -44,14 +44,14 @@ html, body, [class*="st-"] {
 }
 .header-container h1 { color: #FFFFFF !important; font-size: 2.2rem; font-weight: 600; margin: 0; padding: 0;}
 
-/* Flat UI Enforcements (Sharp Edges Everywhere) */
-div[data-testid="stContainer"], 
-div[data-testid="stExpander"], 
-div[data-testid="stVerticalBlock"],
-div[data-testid="stDataFrame"],
-div[data-testid="stTable"],
-iframe { 
-    border-radius: 0px !important; 
+/* Flat UI Enforcements (Safe targeting) */
+/* Targets the explicit bordered containers you create */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 0px !important;
+}
+/* Targets the expander box */
+div[data-testid="stExpander"] details {
+    border-radius: 0px !important;
 }
 
 /* Custom Metric Styling */
