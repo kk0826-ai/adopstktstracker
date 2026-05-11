@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
+import altair as alt
 from requests.auth import HTTPBasicAuth
 
 # --- CONFIGURATION ---
@@ -13,52 +15,58 @@ try:
     domain = st.secrets["JIRA_DOMAIN"].strip().rstrip('/')
     if "/rest/api" in domain:
         domain = domain.split("/rest/api")[0]
-    auth = HTTPBasicAuth(st.secrets["JIRA_USER_EMAIL"], st.secrets["JIRA_API_TOKEN"])
+    JIRA_AUTH = HTTPBasicAuth(st.secrets["JIRA_USER_EMAIL"], st.secrets["JIRA_API_TOKEN"])
 except Exception:
-    st.error("Missing Jira Secrets.")
+    st.error("Missing Jira Secrets in Streamlit settings.")
     st.stop()
 
 st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 st.title(f"✦ {TRACKED_USER}'s H1 OKR Tracker")
 
-# --- 1. DATA LOADING (Pagination + issuetype fetch) ---
+# --- 1. DATA LOADING (Using your exact working POST method) ---
 @st.cache_data(ttl=600)
 def fetch_jira_okr_data():
     all_issues = []
     start_at = 0
     max_results = 100
     
-    # Updated to the new mandatory endpoint
     url = f"{domain}/rest/api/3/search/jql"
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
     
-    # JQL focused on your project and date range
-    jql = f'project = "TKTS" AND created >= "{OKR_GO_LIVE_DATE}"'
+    jql_query = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}" ORDER BY created DESC'
+    fields_to_request = ["summary", "assignee", "status", "issuetype", "resolutiondate"]
     
     progress_bar = st.empty()
     
     while True:
-        # We explicitly ask for 'issuetype' because that contains the "Display" label
-        params = {
-            "jql": jql,
+        # EXACT MATCH to your working tool's logic
+        payload = json.dumps({
+            "jql": jql_query,
             "startAt": start_at,
             "maxResults": max_results,
-            "fields": "summary,assignee,status,issuetype,resolutiondate"
-        }
+            "fields": fields_to_request
+        })
         
-        response = requests.get(url, params=params, auth=auth)
+        response = requests.post(url, headers=headers, data=payload, auth=JIRA_AUTH, timeout=15)
+        
         if response.status_code != 200:
             st.error(f"Jira API Error: {response.text}")
             break
             
         data = response.json()
         issues = data.get('issues', [])
-        all_issues.extend(issues)
         
-        total = data.get('total', 0)
-        progress_bar.info(f"📥 Loading OKR Data: {len(all_issues)} / {total} tickets...")
-        
-        if len(all_issues) >= total or not issues:
+        if not issues:
             break
+            
+        all_issues.extend(issues)
+        total = data.get('total', 0)
+        
+        progress_bar.info(f"📥 Downloading Jira Data: {len(all_issues)} / {total} tickets fetched...")
+        
+        if len(all_issues) >= total:
+            break
+            
         start_at += max_results
 
     progress_bar.empty()
@@ -68,39 +76,39 @@ def fetch_jira_okr_data():
 raw_issues = fetch_jira_okr_data()
 rows = []
 
-# Statuses that count as "Done" based on your JQL logic
+# Statuses that count as "Done"
 DONE_STATUSES = ["closed", "done", "resolved", "campaign/request closed", "completed"]
 
 for issue in raw_issues:
     fields = issue.get('fields', {})
     
-    # IMPORTANT: We fetch the Name of the Issue Type (e.g. "SEA - Display Creatives")
-    issue_type_name = fields.get('issuetype', {}).get('name', '')
-    summary = fields.get('summary', '')
+    # Extract the exact Issue Type name (e.g., "SEA - Display Creatives")
+    issue_type_name = fields.get('issuetype', {}).get('name', '') if fields.get('issuetype') else ""
+    issue_type_lower = issue_type_name.lower()
     
-    # Combined text for categorization
-    combined_text = f"{issue_type_name} {summary}".lower()
-    
-    # Grouping logic
     category = "Other"
-    if "display" in combined_text:
+    
+    # Categorize based strictly on the issuetype name, mimicking your JQL list
+    if "display" in issue_type_lower:
         category = "Display"
-    elif "video" in combined_text or "ctv" in combined_text or "ott" in combined_text:
+    elif "video" in issue_type_lower or "ctv" in issue_type_lower or "ott" in issue_type_lower:
         category = "Video"
-    elif "celtra" in combined_text:
+    elif "celtra" in issue_type_lower:
         category = "Celtra"
         
     assignee = fields.get('assignee')
     assignee_name = assignee.get('displayName', 'Unassigned') if assignee else "Unassigned"
     
-    # A ticket is "Closed" if its status is in our list OR if it has a resolution date
     status_name = fields.get('status', {}).get('name', '').lower()
     is_closed = (status_name in DONE_STATUSES) or (fields.get('resolutiondate') is not None)
     
     rows.append({
+        "Ticket Key": issue.get('key'),
+        "Issue Type": issue_type_name,
         "Category": category,
         "Assignee": assignee_name,
-        "Is_Closed": is_closed
+        "Is_Closed": is_closed,
+        "Status": status_name.title()
     })
 
 df = pd.DataFrame(rows)
@@ -109,6 +117,17 @@ df = pd.DataFrame(rows)
 if df.empty:
     st.warning("No data found for this period.")
     st.stop()
+
+# Helper function to generate premium charts
+def build_progress_chart(share_val):
+    bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#FFCA28' 
+    chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
+    bar = alt.Chart(chart_data).mark_bar(size=30, cornerRadiusEnd=4).encode(
+        x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None),
+        color=alt.value(bar_color)
+    ).properties(height=60)
+    goal_line = alt.Chart(chart_data).mark_rule(color='#FF5252', strokeWidth=2).encode(x='Goal:Q')
+    return (bar + goal_line).configure_view(strokeWidth=0)
 
 categories = ["Display", "Video", "Celtra"]
 cols = st.columns(3)
@@ -127,9 +146,12 @@ for idx, cat in enumerate(categories):
             st.metric("Your Share %", f"{share:.1f}%")
             st.write(f"✅ **{user_done}** Done")
             st.write(f"📊 **{total_team}** Team Total")
-            st.progress(min(share/100, 1.0))
+            if total_team > 0:
+                st.altair_chart(build_progress_chart(share), use_container_width=True)
 
 st.divider()
+
+# --- 4. SUMMARY & AUDIT ---
 st.subheader("📋 Detailed OKR Breakdown")
 summary_list = []
 for cat in categories:
@@ -142,4 +164,10 @@ for cat in categories:
         "Jingyao Done": d,
         "Current Share": f"{(d/t*100 if t>0 else 0):.1f}%"
     })
-st.table(pd.DataFrame(summary_list))
+st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
+
+st.write("---")
+with st.expander("🔍 Verify Raw Data (Ticket Audit Log)"):
+    st.write("View exactly which tickets are being counted under each category to verify the logic.")
+    # Show only categorized tickets to make checking easy
+    st.dataframe(df[df['Category'] != "Other"], use_container_width=True, hide_index=True)
