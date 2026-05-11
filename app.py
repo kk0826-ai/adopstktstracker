@@ -21,9 +21,9 @@ except Exception:
     st.stop()
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide", page_icon="✦")
+st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
-# --- CUSTOM CSS (Inspired by your Dashboard) ---
+# --- CUSTOM CSS (Sleek & Sharp Edges) ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap');
@@ -32,9 +32,9 @@ html, body, [class*="st-"] {
     font-family: 'Manrope', sans-serif; 
 }
 
-/* Hero Banner */
+/* Hero Banner (Shorter height) */
 .header-container { 
-    padding: 2.5rem; 
+    padding: 1.2rem; /* Reduced padding to shorten height */
     background-image: linear-gradient(rgba(14, 17, 23, 0.6), rgba(14, 17, 23, 0.8)), url('https://i.ibb.co/nMTJF4B9/vj-HZbu8-Imgur.jpg'); 
     background-size: cover; 
     background-position: center; 
@@ -42,11 +42,15 @@ html, body, [class*="st-"] {
     border-radius: 0px !important; 
     text-align: center;
 }
-.header-container h1 { color: #FFFFFF !important; font-size: 2.5rem; font-weight: 600; margin: 0; padding: 0;}
-.header-container p { color: #A0AEC0 !important; font-size: 1.1rem; font-weight: 300; margin-top: 5px; }
+.header-container h1 { color: #FFFFFF !important; font-size: 2.2rem; font-weight: 600; margin: 0; padding: 0;}
 
-/* Flat UI Enforcements */
-div[data-testid="stContainer"], div[data-testid="stExpander"], div[data-testid="stVerticalBlock"] { 
+/* Flat UI Enforcements (Sharp Edges Everywhere) */
+div[data-testid="stContainer"], 
+div[data-testid="stExpander"], 
+div[data-testid="stVerticalBlock"],
+div[data-testid="stDataFrame"],
+div[data-testid="stTable"],
+iframe { 
     border-radius: 0px !important; 
 }
 
@@ -92,13 +96,12 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
-    <h1>✦ {TRACKED_USER}'s OKR Tracker</h1>
-    <p>Live Market Share Data for Display, Video, and Celtra (From {OKR_GO_LIVE_DATE})</p>
+    <h1>{TRACKED_USER}'s OKR Tracker</h1>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 1. DATA LOADING (The Bulletproof Method) ---
+# --- 1. DATA LOADING ---
 @st.cache_data(ttl=600)
 def fetch_jira_okr_data():
     all_issues = []
@@ -137,7 +140,7 @@ def fetch_jira_okr_data():
         all_issues.extend(issues)
         
         next_page_token = data.get('nextPageToken')
-        progress_bar.info(f"📥 Downloading Jira Data: {len(all_issues)} tickets fetched so far...")
+        progress_bar.info(f"Downloading Jira Data: {len(all_issues)} tickets fetched so far...")
         
         if not next_page_token: break
 
@@ -227,7 +230,7 @@ for idx, cat in enumerate(categories):
 st.divider()
 
 # --- 5. DATA TABLES ---
-st.markdown("### 📋 Executive Summary")
+st.markdown("### Summary")
 summary_list = []
 for cat in categories:
     c_df = df[df['Category'] == cat]
@@ -240,11 +243,11 @@ for cat in categories:
         "Jingyao Completed": d,
         "Current Share": f"{share_val:.1f}%",
         "Target": f"{TARGET_PERCENTAGE}%",
-        "Status": "✅ On Track" if share_val >= TARGET_PERCENTAGE else "⏳ Needs Attention"
+        "Status": "On Track" if share_val >= TARGET_PERCENTAGE else "Needs Attention"
     })
 st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
 
 st.write("")
-with st.expander("🔍 Ticket Audit Log (Verify Categorization)"):
-    st.write("Review the raw ticket assignment to verify the OKR categorization logic.")
+with st.expander("Ticket Audit Log"):
+    st.write("Review raw ticket assignments")
     st.dataframe(df[df['Category'] != "Other"], use_container_width=True, hide_index=True)
