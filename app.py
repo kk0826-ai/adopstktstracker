@@ -23,7 +23,7 @@ except Exception:
 # --- PAGE CONFIG ---
 st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
-# --- CUSTOM CSS (Using your exact working selectors) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap');
@@ -36,7 +36,7 @@ h1, h2, h3, h4, h5, h6 {
     font-family: 'Manrope', Arial, sans-serif !important; 
 }
 
-/* Hero Banner (Shorter height) */
+/* Hero Banner */
 .header-container { 
     padding: 1.2rem; 
     background-image: linear-gradient(rgba(14, 17, 23, 0.6), rgba(14, 17, 23, 0.8)), url('https://i.ibb.co/nMTJF4B9/vj-HZbu8-Imgur.jpg'); 
@@ -48,12 +48,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 .header-container h1 { color: #FFFFFF !important; font-size: 2.2rem; font-weight: 600; margin: 0; padding: 0;}
 
-/* Flat UI Enforcements (Copied directly from your working tool) */
+/* Enforce Sharp Edges Everywhere */
 div[data-testid="stContainer"], 
 div[data-testid="stTabs"], 
-div[data-testid="stMarkdownContainer"], 
 div[data-testid="stVerticalBlock"], 
-div[data-testid="stMetric"] { 
+div[data-testid="stMetric"],
+[data-testid="stTable"],
+[data-testid="stTable"] > div { 
     border-radius: 0px !important; 
 }
 button { 
@@ -77,6 +78,32 @@ button {
     color: #888;
     text-transform: uppercase;
     letter-spacing: 1px;
+}
+
+/* Scrollable HTML Table for Audit Log */
+.scrollable-table {
+    height: 400px;
+    overflow-y: auto;
+    border: 1px solid rgba(250, 250, 250, 0.2);
+    border-radius: 0px !important; /* Sharp edges */
+}
+.custom-audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.custom-audit-table th, .custom-audit-table td {
+    padding: 10px;
+    border-bottom: 1px solid rgba(250, 250, 250, 0.1);
+    text-align: left;
+}
+.custom-audit-table th {
+    background-color: #0E1117; /* Keeps header dark */
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    font-weight: 600;
 }
 
 /* Color Coding */
@@ -175,13 +202,14 @@ for issue in raw_issues:
     status_name = fields.get('status', {}).get('name', '').lower()
     is_closed = (status_name in DONE_STATUSES) or (fields.get('resolutiondate') is not None)
     
+    # Updated Column Names Here
     rows.append({
-        "Ticket Key": issue.get('key'),
-        "Issue Type": issue_type_name,
+        "TKTS-ID": issue.get('key'),
+        "TKTS-Type": issue_type_name,
         "Category": category,
         "Assignee": assignee_name,
-        "Is_Closed": is_closed,
-        "Status": status_name.title()
+        "Status": status_name.title(),
+        "Is_Closed": is_closed
     })
 
 df = pd.DataFrame(rows)
@@ -223,13 +251,11 @@ for idx, cat in enumerate(categories):
             user_done = len(cat_df[(cat_df['Assignee'] == TRACKED_USER) & (cat_df['Is_Closed'])])
             share = (user_done / total_team * 100) if total_team > 0 else 0
             
-            # Custom 3-Metric Layout
             m1, m2, m3 = st.columns(3)
             m1.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-blue'>{share:.1f}%</p><p class='custom-metric-label'>Share</p></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
-            # Progress Bar at the bottom of the card
             if total_team > 0:
                 st.altair_chart(build_progress_chart(share), use_container_width=True)
 
@@ -252,23 +278,20 @@ for cat in categories:
         "Status": "On Track" if share_val >= TARGET_PERCENTAGE else "Needs Attention"
     })
 
-# Setting 'Category' as the index removes the numbered index on the left
-# and using st.table() displays it as a static table (removes ascending/descending arrows)
 summary_df = pd.DataFrame(summary_list)
 summary_df.set_index("Category", inplace=True)
 st.table(summary_df)
 
 st.write("")
 
-# --- 6. AUDIT LOG (Always visible with scrollbar) ---
+# --- 6. AUDIT LOG (HTML Table to remove sorting & ensure sharp edges) ---
 st.markdown("### Ticket Audit Log")
-st.write("Review raw ticket assignments")
 
-# Setting height=400 natively adds a vertical scrollbar on the side 
-# and setting hide_index=True keeps the table clean.
-st.dataframe(
-    df[df['Category'] != "Other"], 
-    use_container_width=True, 
-    hide_index=True, 
-    height=400 
-)
+# Filter out 'Other' category and drop the internal boolean column
+audit_df = df[df['Category'] != "Other"].drop(columns=['Is_Closed'])
+
+# Convert DataFrame to raw HTML to bypass Streamlit's native ascending/descending arrows
+html_table = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
+
+# Render inside a custom scrollable div with razor-sharp edges
+st.markdown(f'<div class="scrollable-table">{html_table}</div>', unsafe_allow_html=True)
