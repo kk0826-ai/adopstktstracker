@@ -5,9 +5,12 @@ import json
 import altair as alt
 from requests.auth import HTTPBasicAuth
 
+# --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
+TRACKED_USER = "Jingyao Wang"
+st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
+
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
-TRACKED_USER = "Jingyao Wang"
 TARGET_PERCENTAGE = 20.0 
 
 # --- JIRA AUTH ---
@@ -19,9 +22,6 @@ try:
 except Exception:
     st.error("Missing Jira Secrets in Streamlit settings.")
     st.stop()
-
-# --- PAGE CONFIG ---
-st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -83,14 +83,14 @@ button {
 /* Custom HTML Tables */
 .static-table {
     border: 1px solid rgba(250, 250, 250, 0.2);
-    border-radius: 0px !important; /* Sharp edges */
+    border-radius: 0px !important; 
     margin-bottom: 1.5rem;
 }
 .scrollable-table {
     height: 400px;
     overflow-y: auto;
     border: 1px solid rgba(250, 250, 250, 0.2);
-    border-radius: 0px !important; /* Sharp edges */
+    border-radius: 0px !important; 
 }
 .custom-audit-table {
     width: 100%;
@@ -103,12 +103,22 @@ button {
     text-align: left;
 }
 .custom-audit-table th {
-    background-color: #0E1117; /* Keeps header dark */
+    background-color: #0E1117; 
     color: white;
     position: sticky;
     top: 0;
     z-index: 1;
     font-weight: 600;
+}
+
+/* Hyperlink Styling for Audit Table */
+.custom-audit-table a {
+    color: #58C0ED;
+    text-decoration: none;
+    font-weight: 600;
+}
+.custom-audit-table a:hover {
+    text-decoration: underline;
 }
 
 /* Color Coding */
@@ -134,12 +144,12 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
-    <h1>{TRACKED_USER}'s TKTS Tracker</h1>
+    <h1>{TRACKED_USER}'s OKR Tracker</h1>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 1. DATA LOADING ---
+# --- 2. DATA LOADING ---
 @st.cache_data(ttl=600)
 def fetch_jira_okr_data():
     all_issues = []
@@ -148,7 +158,7 @@ def fetch_jira_okr_data():
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     
     jql_query = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}" ORDER BY created DESC'
-    fields_to_request = ["summary", "assignee", "status", "issuetype", "resolutiondate"]
+    fields_to_request = ["summary", "assignee", "status", "issuetype", "resolutiondate", "created"]
     
     progress_bar = st.empty()
     next_page_token = None
@@ -185,13 +195,18 @@ def fetch_jira_okr_data():
     progress_bar.empty()
     return all_issues
 
-# --- 2. PROCESSING ---
+# --- 3. PROCESSING ---
 raw_issues = fetch_jira_okr_data()
 rows = []
 DONE_STATUSES = ["closed", "done", "resolved", "campaign/request closed", "completed"]
 
 for issue in raw_issues:
     fields = issue.get('fields', {})
+    ticket_key = issue.get('key')
+    
+    # Format Creation Date
+    created_raw = fields.get('created')
+    created_date = pd.to_datetime(created_raw).strftime('%d %b %Y') if created_raw else "Unknown"
     
     issue_type_name = fields.get('issuetype', {}).get('name', '') if fields.get('issuetype') else ""
     issue_type_lower = issue_type_name.lower()
@@ -207,8 +222,12 @@ for issue in raw_issues:
     status_name = fields.get('status', {}).get('name', '').lower()
     is_closed = (status_name in DONE_STATUSES) or (fields.get('resolutiondate') is not None)
     
+    # HTML Link for the Ticket ID
+    jira_link = f'<a href="{domain}/browse/{ticket_key}" target="_blank">{ticket_key}</a>'
+    
     rows.append({
-        "TKTS-ID": issue.get('key'),
+        "TKTS-ID": jira_link,
+        "Created Date": created_date,
         "TKTS-Type": issue_type_name,
         "Category": category,
         "Assignee": assignee_name,
@@ -223,7 +242,7 @@ if df.empty:
     st.stop()
 
 
-# --- 3. HELPER CHARTS ---
+# --- 4. HELPER CHARTS ---
 def build_progress_chart(share_val):
     bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#58C0ED' 
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
@@ -241,7 +260,7 @@ def build_progress_chart(share_val):
     return (bar + goal_line).configure_view(strokeWidth=0)
 
 
-# --- 4. DASHBOARD UI ---
+# --- 5. DASHBOARD UI ---
 categories = ["Display", "Video", "Celtra"]
 cols = st.columns(3)
 
@@ -265,7 +284,7 @@ for idx, cat in enumerate(categories):
 
 st.divider()
 
-# --- 5. DATA TABLES ---
+# --- 6. DATA TABLES ---
 st.markdown("### Summary")
 summary_list = []
 for cat in categories:
@@ -282,17 +301,15 @@ for cat in categories:
         "Status": "On Track" if share_val >= TARGET_PERCENTAGE else "Needs Attention"
     })
 
-# Convert Summary DataFrame to custom HTML Table
 summary_df = pd.DataFrame(summary_list)
 summary_html = summary_df.to_html(index=False, classes="custom-audit-table", escape=False)
 st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html=True)
 
-
-# --- 6. AUDIT LOG ---
+# --- 7. AUDIT LOG ---
 st.markdown("### Ticket Audit Log")
 
 audit_df = df[df['Category'] != "Other"].drop(columns=['Is_Closed'])
 
-# Convert Audit DataFrame to custom HTML Table
+# Render the Audit HTML table (escape=False allows the hyperlinks to work)
 audit_html = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
 st.markdown(f'<div class="scrollable-table">{audit_html}</div>', unsafe_allow_html=True)
