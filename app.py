@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
 from requests.auth import HTTPBasicAuth
 
 # --- CONFIGURATION ---
@@ -8,107 +9,107 @@ OKR_GO_LIVE_DATE = "2026-04-01"
 TRACKED_USER = "Jingyao Wang"
 TARGET_PERCENTAGE = 20.0 
 
-# --- JIRA AUTH ---
+# --- JIRA AUTH & URL CLEANUP ---
 try:
-    domain = st.secrets["JIRA_DOMAIN"].strip().rstrip('/')
-    if "/rest/api" in domain:
-        domain = domain.split("/rest/api")[0]
-    auth = HTTPBasicAuth(st.secrets["JIRA_USER_EMAIL"], st.secrets["JIRA_API_TOKEN"])
+    RAW_DOMAIN = st.secrets["JIRA_DOMAIN"].strip().rstrip('/')
+    JIRA_DOMAIN = RAW_DOMAIN.split("/rest/api")[0] if "/rest/api" in RAW_DOMAIN else RAW_DOMAIN
+    JIRA_USER_EMAIL = st.secrets["JIRA_USER_EMAIL"]
+    JIRA_API_TOKEN = st.secrets["JIRA_API_TOKEN"]
+    JIRA_AUTH = HTTPBasicAuth(JIRA_USER_EMAIL, JIRA_API_TOKEN)
 except Exception:
-    st.error("Missing Jira Secrets.")
+    st.error("Jira Secrets are missing or incorrect.")
     st.stop()
 
 st.set_page_config(page_title="OKR Tracker", layout="wide")
 st.title(f"✦ {TRACKED_USER}'s OKR Tracker")
 
-# --- 1. DATA LOADING (Uses your exact JQL logic) ---
+# --- 1. DATA LOADING (Maximum Fetch) ---
 @st.cache_data(ttl=600)
-def fetch_jira_data():
+def fetch_complete_data():
     all_issues = []
     start_at = 0
     max_results = 100
     
-    url = f"{domain}/rest/api/3/search/jql"
+    # Using the mandatory JQL endpoint
+    url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     
-    # We use your exact project and date, but simplify the JQL for the API
+    # Base query for the project and date
     jql = f'project = "TKTS" AND created >= "{OKR_GO_LIVE_DATE}"'
     
-    progress_bar = st.progress(0, text="Syncing with Jira...")
+    status_msg = st.empty()
     
     while True:
-        # We ask for "customfield_10010" which is "Customer Request Type"
-        params = {
+        payload = {
             "jql": jql,
             "startAt": start_at,
             "maxResults": max_results,
-            "fields": "summary,assignee,status,customfield_10010"
+            "fields": ["summary", "assignee", "status", "issuetype", "components"] 
         }
         
-        response = requests.get(url, params=params, auth=auth)
+        # We use POST to allow for larger payloads and more stable connection
+        response = requests.post(url, json=payload, auth=JIRA_AUTH)
+        
         if response.status_code != 200:
-            st.error(f"Jira Error: {response.text}")
+            st.error(f"API Error {response.status_code}: {response.text}")
             break
             
         data = response.json()
         issues = data.get('issues', [])
+        if not issues:
+            break
+            
         all_issues.extend(issues)
-        
         total = data.get('total', 0)
-        if total > 0:
-            progress_bar.progress(min(len(all_issues)/total, 1.0), text=f"📥 Received {len(all_issues)} of {total} tickets...")
         
-        if len(all_issues) >= total or not issues:
+        status_msg.info(f"🔄 Syncing tickets from Jira... {len(all_issues)} of {total} collected.")
+        
+        if len(all_issues) >= total:
             break
         start_at += max_results
 
-    progress_bar.empty()
+    status_msg.empty()
     return all_issues
 
 # --- 2. PROCESSING & CATEGORIZATION ---
-issues = fetch_jira_data()
-rows = []
-done_statuses = ["closed", "done", "resolved", "campaign/request closed"]
+raw_data = fetch_complete_data()
+processed_rows = []
 
-for issue in issues:
+# Statuses that count as "Done"
+DONE_STATUSES = ["closed", "done", "resolved", "campaign/request closed", "completed"]
+
+for issue in raw_data:
     fields = issue.get('fields', {})
     
-    # Get Request Type (usually stored in a dict inside customfield_10010)
-    req_type_data = fields.get('customfield_10010')
-    req_type_name = ""
-    if isinstance(req_type_data, dict):
-        req_type_name = req_type_data.get('requestType', {}).get('name', '')
-    elif isinstance(req_type_data, str):
-        req_type_name = req_type_data
-        
-    summary = fields.get('summary', '')
+    # CATEGORIZATION: We search the entire JSON of the ticket (Deep Scan)
+    # This catches "Display" whether it's in the title, request type, or component.
+    full_ticket_text = json.dumps(issue).lower()
     
-    # Combined search: Check Request Type FIRST, then Summary
-    full_search_text = f"{req_type_name} {summary}".lower()
-    
+    # Logic to match your JQL exactly
     category = "Other"
-    if "display" in full_search_text:
+    if "display" in full_ticket_text:
         category = "Display"
-    elif "video" in full_search_text:
+    elif "video" in full_ticket_text or "ctv" in full_ticket_text or "ott" in full_ticket_text:
         category = "Video"
-    elif "celtra" in full_search_text:
+    elif "celtra" in full_ticket_text:
         category = "Celtra"
         
-    assignee = fields.get('assignee')
-    assignee_name = assignee.get('displayName', 'Unassigned') if assignee else "Unassigned"
+    assignee_obj = fields.get('assignee')
+    name = assignee_obj.get('displayName', 'Unassigned') if assignee_obj else "Unassigned"
     
-    status = fields.get('status', {}).get('name', '').lower()
+    status_name = fields.get('status', {}).get('name', '').lower()
     
-    rows.append({
+    processed_rows.append({
+        "Key": issue.get('key'),
         "Category": category,
-        "Assignee": assignee_name,
-        "Is_Closed": status in done_statuses
+        "Assignee": name,
+        "Is_Closed": status_name in DONE_STATUSES
     })
 
-df = pd.DataFrame(rows)
+df = pd.DataFrame(processed_rows)
 
-# --- 3. DASHBOARD ---
+# --- 3. UI DASHBOARD ---
 if df.empty:
-    st.warning("No data found.")
+    st.warning("No tickets found for the selected period.")
     st.stop()
 
 categories = ["Display", "Video", "Celtra"]
@@ -117,27 +118,36 @@ cols = st.columns(3)
 for idx, cat in enumerate(categories):
     with cols[idx]:
         with st.container(border=True):
-            st.subheader(cat)
-            c_df = df[df['Category'] == cat]
-            total = len(c_df)
-            done = len(c_df[(c_df['Assignee'] == TRACKED_USER) & (c_df['Is_Closed'])])
-            share = (done / total * 100) if total > 0 else 0
+            st.subheader(f"✦ {cat}")
+            cat_df = df[df['Category'] == cat]
             
-            st.metric("Your Share %", f"{share:.1f}%")
-            st.write(f"**{done}** Done / **{total}** Total")
+            total_team = len(cat_df)
+            user_done = len(cat_df[(cat_df['Assignee'] == TRACKED_USER) & (cat_df['Is_Closed'])])
+            
+            # OKR Calculation
+            share = (user_done / total_team * 100) if total_team > 0 else 0
+            
+            st.metric("Market Share %", f"{share:.1f}%")
+            st.write(f"**{user_done}** tickets completed by you")
+            st.write(f"**{total_team}** total team tickets found")
             st.progress(min(share/100, 1.0))
 
 st.divider()
-st.subheader("📊 Detailed Summary")
-summary_data = []
-for cat in categories:
-    c_df = df[df['Category'] == cat]
-    t = len(c_df)
-    d = len(c_df[(c_df['Assignee'] == TRACKED_USER) & (c_df['Is_Closed'])])
-    summary_data.append({
-        "Category": cat,
-        "Total Team Tickets": t,
-        "Jingyao Completed": d,
-        "Current Share": f"{(d/t*100 if t>0 else 0):.1f}%"
-    })
-st.table(pd.DataFrame(summary_data))
+
+# --- 4. DATA VALIDATION TABLE ---
+with st.expander("🔍 View Raw Breakdown (Verify Ticket Counts)"):
+    st.write("This table shows the counts for every category found.")
+    summary = []
+    for cat in categories:
+        c_df = df[df['Category'] == cat]
+        summary.append({
+            "Category": cat,
+            "Total Found": len(c_df),
+            "Jingyao Done": len(c_df[(c_df['Assignee'] == TRACKED_USER) & (c_df['Is_Closed'])]),
+            "Market Share": f"{(len(c_df[(c_df['Assignee'] == TRACKED_USER) & (c_df['Is_Closed'])])/len(c_df)*100 if len(c_df)>0 else 0):.1f}%"
+        })
+    st.table(pd.DataFrame(summary))
+    
+    st.write("---")
+    st.write("### Sample of 'Display' Tickets Found")
+    st.dataframe(df[df['Category'] == 'Display'].head(20), use_container_width=True)
