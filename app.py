@@ -253,7 +253,8 @@ def build_progress_chart(share_val):
         tooltip=['Share']
     ).properties(height=40)
     
-    goal_line = alt.Chart(chart_data).mark_rule(color='#FF5252', strokeWidth=3).encode(
+    # INCREASED THICKNESS AND BRIGHTNESS OF GOAL LINE
+    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
         x='Goal:Q',
         tooltip=['Goal']
     )
