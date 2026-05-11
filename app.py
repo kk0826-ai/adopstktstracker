@@ -23,12 +23,10 @@ except Exception:
 st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 st.title(f"✦ {TRACKED_USER}'s H1 OKR Tracker")
 
-# --- 1. DATA LOADING (Using your exact working POST method) ---
+# --- 1. DATA LOADING (Identical to your working tool) ---
 @st.cache_data(ttl=600)
 def fetch_jira_okr_data():
     all_issues = []
-    start_at = 0
-    max_results = 100
     
     url = f"{domain}/rest/api/3/search/jql"
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -37,20 +35,26 @@ def fetch_jira_okr_data():
     fields_to_request = ["summary", "assignee", "status", "issuetype", "resolutiondate"]
     
     progress_bar = st.empty()
+    next_page_token = None
     
     while True:
-        # EXACT MATCH to your working tool's logic
-        payload = json.dumps({
+        # EXACT match to your working tool, but with the new nextPageToken for pagination
+        payload_dict = {
             "jql": jql_query,
-            "startAt": start_at,
-            "maxResults": max_results,
-            "fields": fields_to_request
-        })
+            "fields": fields_to_request,
+            "maxResults": 1000 
+        }
+        
+        # If Jira gives us a token for the next page, we include it in the payload
+        if next_page_token:
+            payload_dict["nextPageToken"] = next_page_token
+            
+        payload = json.dumps(payload_dict)
         
         response = requests.post(url, headers=headers, data=payload, auth=JIRA_AUTH, timeout=15)
         
         if response.status_code != 200:
-            st.error(f"Jira API Error: {response.text}")
+            st.error(f"Jira API Error {response.status_code}: {response.text}")
             break
             
         data = response.json()
@@ -60,14 +64,14 @@ def fetch_jira_okr_data():
             break
             
         all_issues.extend(issues)
-        total = data.get('total', 0)
         
-        progress_bar.info(f"📥 Downloading Jira Data: {len(all_issues)} / {total} tickets fetched...")
+        # The new API uses nextPageToken instead of total/startAt
+        next_page_token = data.get('nextPageToken')
         
-        if len(all_issues) >= total:
+        progress_bar.info(f"📥 Downloading Jira Data: {len(all_issues)} tickets fetched so far...")
+        
+        if not next_page_token:
             break
-            
-        start_at += max_results
 
     progress_bar.empty()
     return all_issues
@@ -169,5 +173,4 @@ st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=Tr
 st.write("---")
 with st.expander("🔍 Verify Raw Data (Ticket Audit Log)"):
     st.write("View exactly which tickets are being counted under each category to verify the logic.")
-    # Show only categorized tickets to make checking easy
     st.dataframe(df[df['Category'] != "Other"], use_container_width=True, hide_index=True)
