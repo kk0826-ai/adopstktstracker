@@ -6,7 +6,7 @@ from requests.auth import HTTPBasicAuth
 from datetime import datetime
 
 # --- CONFIGURATION ---
-OKR_GO_LIVE_DATE = "2026-03-01" 
+OKR_GO_LIVE_DATE = "2026-04-01" 
 TRACKED_USER = "Jingyao Wang"
 TARGET_PERCENTAGE = 20.0  # The OKR Goal
 
