@@ -73,24 +73,47 @@ st.markdown(f"""
 
 
 # --- 1. DATA LOADING ---
-@st.cache_data(ttl=1800) # Caches for 30 mins
+@st.cache_data(ttl=1800)
 def load_h1_data():
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     jql = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}"'
-    fields = ["key", "issuetype", "assignee", "status", "resolutiondate"]
     
-    payload = {"jql": jql, "fields": fields, "maxResults": 1000}
+    payload = {"jql": jql, "maxResults": 1000}
     response = requests.post(url, json=payload, auth=JIRA_AUTH)
     response.raise_for_status()
     
+    done_statuses = ["closed", "done", "resolved", "campaign/request closed"]
+    
     issues = []
-    for i in response.json().get('issues', []):
-        f = i['fields']
+    # Use .get() to avoid KeyError if 'issues' is missing
+    raw_issues = response.json().get('issues', [])
+    
+    for i in raw_issues:
+        # SAFE ACCESS: Use .get('fields') instead of ['fields']
+        f = i.get('fields')
+        
+        # If 'fields' is missing for some reason, skip this specific ticket
+        if f is None:
+            continue
+            
+        fields_str = str(f).lower()
+        
+        ticket_type = "Other"
+        if "celtra" in fields_str:
+            ticket_type = "Celtra"
+        elif "display" in fields_str:
+            ticket_type = "Display"
+        elif "video" in fields_str:
+            ticket_type = "Video"
+            
+        assignee_dict = f.get('assignee')
+        status_dict = f.get('status', {})
+        
         issues.append({
-            "key": i['key'],
-            "type": f['issuetype']['name'],
-            "assignee": f['assignee']['displayName'] if f['assignee'] else "Unassigned",
-            "is_closed": f['status']['name'].lower() in ["closed", "done", "resolved"]
+            "key": i.get('key', 'Unknown'),
+            "type": ticket_type,
+            "assignee": assignee_dict['displayName'] if assignee_dict else "Unassigned",
+            "is_closed": status_dict.get('name', '').lower() in done_statuses
         })
     return pd.DataFrame(issues)
 
