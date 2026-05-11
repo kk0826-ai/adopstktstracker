@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import altair as alt
-import json
 from requests.auth import HTTPBasicAuth
 
 # --- CONFIGURATION ---
@@ -75,58 +74,39 @@ st.markdown(f"""
 # --- 1. DATA LOADING WITH PAGINATION ---
 @st.cache_data(ttl=1800) # Caches for 30 mins
 def load_h1_data():
-    # Standard search endpoint (handles pagination better)
-    url = f"{JIRA_DOMAIN}/rest/api/3/search"
+    url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
     
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    
+    # Using your exact comprehensive JQL with the Go-Live Date injected
     jql = f"""
-    project = TKTS
-    and status IN (Closed, "In Progress", Open, Reopened, Resolved, "Waiting for customer", "Waiting for support", "Campaign/request closed")
-    and type IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound")
-    and created >= "{OKR_GO_LIVE_DATE}"
-    ORDER BY created DESC
+        project = TKTS
+        AND status IN (Closed, "In Progress", Open, Reopened, Resolved, "Waiting for customer", "Waiting for support", "Campaign/request closed")
+        AND issuetype IN ("ANZ - Display Creatives", "ANZ - Video Creatives", "ANZ - Native Creatives", "ANZ - Celtra Creatives", "ANZ - DCO Creatives", "ANZ - Audio Creatives", "ANZ - SeenThis Creatives - Self-serve only", "ANZ - Social Boost Creatives", "ANZ - Advanced Pixels", "ANZ - Troubleshooting - Creatives", "ANZ - Troubleshooting - Pixels", "ANZ - Bespoke Requests", "IN - Display Creatives", "IN - Video Creatives", "IN - CTV/OTT Creatives", "IN - Native Creatives", "IN - DCO Creatives", "IN - Audio Creatives", "IN - SeenThis Creatives - Self-serve only", "IN - Customer Match Creatives", "IN - Bespoke Requests", "IN - Troubleshooting Requests", "MENA - Bespoke Requests", "MENA - CTV Creatives", "MENA - Display Creatives", "MENA - Celtra Creatives", "MENA - SeenThis Creatives - Self-serve only", "MENA - Troubleshooting Creatives", "MENA - Native Creatives", "MENA - Video Creatives", "SEA - Audio Creatives", "SEA - Bespoke Requests", "SEA - Celtra Creatives", "SEA - DCO Creatives", "SEA - Display Creatives", "SEA - DOOH Creatives", "SEA - Native Creatives", "SEA - OMG/Assembly Creatives", "SEA - OTT Creatives", "SEA - SeenThis Creatives - Self-serve only", "SEA - Video Creatives", "UK - Display Creatives", "UK - CTV Creatives", "UK - Audio Creatives", "UK - Video Creatives", "UK - Native Creatives", "UK - Celtra Creatives", "UK - Skin Creatives", "UK - SeenThis Creatives - Self-serve only", "UK - THG - Creatives and Trackers", "UK - Customer Match Creatives", "UK - Bespoke Requests", "UK - Troubleshooting Creatives", "China - Bespoke Request", "China - Inbound", "China - Outbound")
+        AND created >= "{OKR_GO_LIVE_DATE}"
+        ORDER BY created DESC
     """
     
     fields = ["key", "issuetype", "assignee", "status"]
     
     issues = []
     start_at = 0
-    max_results = 100 
+    max_results = 100 # Jira API pagination limit
     
-    import json 
-    
+    # Loop to fetch all pages of tickets so nothing is cut off
     while True:
-        payload = json.dumps({"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at})
-        
-        # 1. Added a 15-second timeout to stop indefinite hanging
-        try:
-            response = requests.post(url, headers=headers, data=payload, auth=JIRA_AUTH, timeout=15)
-        except requests.exceptions.RequestException as e:
-            st.error(f"Network Connection Failed: {e}")
-            st.stop()
-        
-        if not response.ok:
-            try:
-                error_details = response.json().get('errorMessages', [response.text])[0]
-            except:
-                error_details = response.text
-            st.error(f"Jira API Error: {error_details}")
-            st.stop()
-            
+        payload = {"jql": jql, "fields": fields, "maxResults": max_results, "startAt": start_at}
+        response = requests.post(url, json=payload, auth=JIRA_AUTH)
+        response.raise_for_status()
         data = response.json()
         
         batch = data.get('issues', [])
         issues.extend(batch)
         
-        # 2. Smart pagination: use Jira's 'total' count to know exactly when to stop
-        total_expected = data.get('total', 0)
+        if len(batch) < max_results:
+            break # Reached the last page
+            
         start_at += max_results
-        
-        # 3. Fail-safes: Break if we hit the total, if the batch is empty, or a hard limit of 10,000 tickets
-        if start_at >= total_expected or len(batch) == 0 or start_at > 10000:
-            break 
 
+    # Process statuses to identify completed tickets
     closed_statuses = ["closed", "done", "resolved", "campaign/request closed"]
     
     processed_issues = []
