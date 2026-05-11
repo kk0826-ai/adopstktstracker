@@ -32,45 +32,39 @@ html, body, [class*="st-"] { font-family: 'Manrope', sans-serif; }
     padding: 20px; border-radius: 4px; color: white; margin-bottom: 25px;
 }
 .header-box h1 { margin: 0; font-weight: 700; color: white !important; font-size: 2.2rem; }
-.header-box p { margin: 5px 0 0 0; font-weight: 300; font-size: 1.1rem; opacity: 0.9; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- HEADER ---
-st.markdown(f"""
-<div class="header-box">
-    <h1>✦ {TRACKED_USER}'s H1 OKR Tracker</h1>
-    <p>Tracking Live Market Share for Display, Video, and Celtra (From {OKR_GO_LIVE_DATE})</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f'<div class="header-box"><h1>✦ {TRACKED_USER}\'s OKR Tracker</h1></div>', unsafe_allow_html=True)
 
-# --- 1. DATA LOADING (Robust Pagination) ---
+# --- 1. DATA LOADING (Ultra-Safe Version) ---
 @st.cache_data(ttl=600) 
 def load_h1_data():
     url = f"{JIRA_DOMAIN}/rest/api/3/search/jql"
-    # Note: We query specifically for the fields we need to keep the data payload small
-    jql_query = f'project = TKTS AND created >= "{OKR_GO_LIVE_DATE}"'
+    # Simplified query to ensure no syntax errors
+    jql_query = f'project = "TKTS" AND created >= "{OKR_GO_LIVE_DATE}"'
     
     all_issues = []
     start_at = 0
-    max_results = 50 # Smaller chunks to prevent HTTP timeouts
+    max_results = 50 
     
-    load_progress = st.progress(0, text="Connecting to Jira...")
+    load_progress = st.progress(0, text="Initializing Jira Sync...")
     
     try:
         while True:
+            # We only request standard fields to avoid 400 Errors from missing Custom Fields
             payload = {
                 "jql": jql_query, 
                 "startAt": start_at,
                 "maxResults": max_results,
-                "fields": ["assignee", "status", "summary", "issuetype", "customfield_10010"] 
+                "fields": ["summary", "assignee", "status", "issuetype"] 
             }
             
             response = requests.post(url, json=payload, auth=JIRA_AUTH)
             
-            # If a specific page fails, show the error but return what we have so far
             if response.status_code != 200:
-                st.error(f"Jira API error on batch starting at {start_at}: {response.status_code}")
+                st.error(f"Jira API Error {response.status_code}: {response.text}")
                 break
 
             data = response.json()
@@ -81,16 +75,15 @@ def load_h1_data():
             all_issues.extend(issues)
             total = data.get('total', 0)
             
-            # Update UI
             percent = min(len(all_issues) / total, 1.0) if total > 0 else 1.0
-            load_progress.progress(percent, text=f"Syncing: {len(all_issues)} / {total} tickets...")
+            load_progress.progress(percent, text=f"Downloading {len(all_issues)} / {total} tickets...")
             
             start_at += max_results
             if len(all_issues) >= total:
                 break
                 
     except Exception as e:
-        st.warning(f"Data sync interrupted: {e}. Showing partial results.")
+        st.warning(f"Connection issue: {e}")
 
     load_progress.empty()
     
@@ -100,82 +93,61 @@ def load_h1_data():
     for i in all_issues:
         f = i.get('fields', {})
         
-        # We prioritize "Customer Request Type" for classification to match your CSV
-        # Then we fall back to the Summary text.
-        req_type = str(f.get('customfield_10010', '')).lower()
-        summary = str(f.get('summary', '')).lower()
-        combined_context = f"{req_type} {summary}"
+        # KEYWORD MATCHING: Since we can't reliably name the Custom Field ID, 
+        # we check the entire ticket object string for our categories.
+        ticket_full_text = str(i).lower()
         
-        ticket_type = "Other"
-        if "celtra" in combined_context:
-            ticket_type = "Celtra"
-        elif "display" in combined_context:
-            ticket_type = "Display"
-        elif "video" in combined_context:
-            ticket_type = "Video"
+        category = "Other"
+        if "celtra" in ticket_full_text:
+            category = "Celtra"
+        elif "display" in ticket_full_text:
+            category = "Display"
+        elif "video" in ticket_full_text:
+            category = "Video"
             
-        assignee_dict = f.get('assignee')
-        status_dict = f.get('status', {})
+        assignee = f.get('assignee')
+        status = f.get('status', {})
         
         parsed_data.append({
             "key": i.get('key'),
-            "type": ticket_type,
-            "assignee": assignee_dict.get('displayName') if assignee_dict else "Unassigned",
-            "is_closed": status_dict.get('name', '').lower() in done_statuses
+            "type": category,
+            "assignee": assignee.get('displayName') if assignee else "Unassigned",
+            "is_closed": status.get('name', '').lower() in done_statuses
         })
         
     return pd.DataFrame(parsed_data)
 
-# --- 2. LOGIC ---
-with st.spinner("Crunching numbers..."):
-    df = load_h1_data()
+# --- 2. CALCULATIONS ---
+df = load_h1_data()
 
 if df.empty:
-    st.warning("No data found. Check your Jira permissions or Project Key.")
+    st.error("No data found. Please check if your JIRA_DOMAIN and API Token are correct.")
     st.stop()
 
-# Progress Chart Function
-def build_progress_chart(share_val):
-    bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#FFCA28' 
-    chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
-    bar = alt.Chart(chart_data).mark_bar(size=30, cornerRadiusEnd=4).encode(
-        x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None),
-        color=alt.value(bar_color)
-    ).properties(height=60)
-    goal_line = alt.Chart(chart_data).mark_rule(color='#FF5252', strokeWidth=2).encode(x='Goal:Q')
-    return (bar + goal_line).configure_view(strokeWidth=0)
-
-# --- 3. UI DISPLAY ---
+# --- 3. UI ---
 categories = ["Display", "Video", "Celtra"]
 cols = st.columns(3)
 
-for idx, category in enumerate(categories):
+for idx, cat in enumerate(categories):
     with cols[idx]:
         with st.container(border=True):
-            st.subheader(f"✦ {category}")
-            cat_df = df[df['type'] == category]
-            total_pool = len(cat_df)
-            user_closed = len(cat_df[(cat_df['assignee'] == TRACKED_USER) & (cat_df['is_closed'])])
-            share = (user_closed / total_pool * 100) if total_pool > 0 else 0
+            st.subheader(f"✦ {cat}")
+            c_df = df[df['type'] == cat]
+            total = len(c_df)
+            done = len(c_df[(c_df['assignee'] == TRACKED_USER) & (c_df['is_closed'])])
+            share = (done / total * 100) if total > 0 else 0
             
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Share %", f"{share:.1f}%")
-            m2.metric("Done", user_closed)
-            m3.metric("Team Total", total_pool)
+            st.metric("Share %", f"{share:.1f}%")
+            st.write(f"**{done}** done out of **{total}** total")
             
-            if total_pool > 0:
-                st.altair_chart(build_progress_chart(share), use_container_width=True)
-            else:
-                st.caption(f"No {category} tickets found.")
+            # Simple Progress Bar
+            st.progress(share / 100)
 
 st.divider()
 st.markdown("### 📋 Detailed Summary")
-summary_list = []
+summary = []
 for cat in categories:
     c_df = df[df['type'] == cat]
-    t = len(c_df)
-    u = len(c_df[(c_df['assignee'] == TRACKED_USER) & (c_df['is_closed'])])
-    s = (u / t * 100) if t > 0 else 0
-    summary_list.append({"Category": cat, "Team Total": t, "Your Done": u, "Current Share": f"{s:.1f}%"})
-
-st.dataframe(pd.DataFrame(summary_list), use_container_width=True, hide_index=True)
+    t, d = len(c_df), len(c_df[(c_df['assignee'] == TRACKED_USER) & (c_df['is_closed'])])
+    summary.append({"Category": cat, "Team Total": t, "Your Done": d, "Share": f"{(d/t*100 if t>0 else 0):.1f}%"})
+st.table(pd.DataFrame(summary))
