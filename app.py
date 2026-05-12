@@ -7,7 +7,7 @@ from requests.auth import HTTPBasicAuth
 
 # --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
 TRACKED_USER = "Jingyao Wang"
-st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
+st.set_page_config(page_title=f"{TRACKED_USER} - TKTS Tracker", layout="wide")
 
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
@@ -161,7 +161,7 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
-    <h1>{TRACKED_USER}'s OKR Tracker</h1>
+    <h1>{TRACKED_USER}'s TKTS Tracker</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -343,7 +343,7 @@ summary_html = summary_df.to_html(index=False, classes="custom-audit-table", esc
 st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html=True)
 
 # --- 7. AUDIT LOG WITH FILTERS ---
-st.markdown(f"### Ticket Audit Log ({TRACKED_USER})")
+st.markdown("### Ticket Audit Log")
 
 # Filter down to just the tracked user's tickets
 audit_df = team_df[
