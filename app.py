@@ -155,7 +155,7 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
-    <h1>{TRACKED_USER}'s OKR Tracker</h1>
+    <h1>{TRACKED_USER}'s TKTS Tracker</h1>
 </div>
 """, unsafe_allow_html=True)
 
