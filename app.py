@@ -343,7 +343,7 @@ summary_html = summary_df.to_html(index=False, classes="custom-audit-table", esc
 st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html=True)
 
 # --- 7. AUDIT LOG WITH FILTERS ---
-st.markdown(f"### Ticket Audit Log ({})")
+st.markdown(f"### Ticket Audit Log ({TRACKED_USER})")
 
 # Filter down to just the tracked user's tickets
 audit_df = team_df[
