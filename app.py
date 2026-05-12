@@ -7,11 +7,17 @@ from requests.auth import HTTPBasicAuth
 
 # --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
 TRACKED_USER = "Jingyao Wang"
-st.set_page_config(page_title=f"{TRACKED_USER} - TKTS Tracker", layout="wide")
+st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
-TARGET_PERCENTAGE = 20.0 
+
+# Dynamic Targets for each category
+TARGET_PERCENTAGES = {
+    "Display": 14.0,
+    "Video": 14.0,
+    "Celtra": 10.0
+}
 
 # The exact 6 team members
 VALID_TEAM = [name.lower().strip() for name in [
@@ -155,7 +161,7 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
-    <h1>{TRACKED_USER}'s TKTS Tracker</h1>
+    <h1>{TRACKED_USER}'s OKR Tracker</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -267,18 +273,17 @@ if team_df.empty:
     st.stop()
 
 # --- 4. HELPER CHARTS ---
-def build_progress_chart(share_val):
-    bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#58C0ED' 
-    chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
+# Updated to take target_val as an argument
+def build_progress_chart(share_val, target_val):
+    bar_color = '#00E676' if share_val >= target_val else '#58C0ED' 
+    chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [target_val]})
     
-    # The bar map
     bar = alt.Chart(chart_data).mark_bar(size=24).encode(
         x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None, axis=alt.Axis(labels=False, ticks=False)),
         color=alt.value(bar_color),
         tooltip=['Share']
     ).properties(height=40)
     
-    # THE FIX: Explicitly forcing the Goal line to share the identical 0-100 scale!
     goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=4).encode(
         x=alt.X('Goal:Q', scale=alt.Scale(domain=[0, 100])),
         tooltip=['Goal']
@@ -306,8 +311,11 @@ for idx, cat in enumerate(categories):
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
+            # Fetch the dynamic target for this specific category
+            target_val = TARGET_PERCENTAGES.get(cat, 0)
+            
             if total_team > 0:
-                st.altair_chart(build_progress_chart(share), use_container_width=True)
+                st.altair_chart(build_progress_chart(share, target_val), use_container_width=True)
 
 st.divider()
 
@@ -319,13 +327,15 @@ for cat in categories:
     t = len(c_df)
     d = len(c_df[(c_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & (c_df['Is_Closed'])])
     share_val = (d/t*100) if t > 0 else 0
+    target_val = TARGET_PERCENTAGES.get(cat, 0)
+    
     summary_list.append({
         "Category": cat,
         "Total Team Tickets": t,
         "Jingyao Completed": d,
         "Current Share": f"{share_val:.1f}%",
-        "Target": f"{TARGET_PERCENTAGE}%",
-        "Status": "On Track" if share_val >= TARGET_PERCENTAGE else "Needs Attention"
+        "Target": f"{target_val}%",
+        "Status": "On Track" if share_val >= target_val else "Needs Attention"
     })
 
 summary_df = pd.DataFrame(summary_list)
