@@ -13,14 +13,15 @@ st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 OKR_GO_LIVE_DATE = "2026-04-01" 
 TARGET_PERCENTAGE = 20.0 
 
-# The specific pod/team members to include in the denominator
-VALID_TEAM = [
-    "Jingyao Wang",
+# The exact 6 team members
+VALID_TEAM = [name.lower().strip() for name in [
     "Simin Zheng", 
     "Priyanka Shaw", 
     "Tania Singh", 
-    "Roshni Subramanian"
-]
+    "Roshni Subramanian", 
+    "Jingyao Wang", 
+    "Pushyami"
+]]
 
 # --- JIRA AUTH ---
 try:
@@ -221,9 +222,14 @@ for issue in raw_issues:
     issue_type_lower = issue_type_name.lower()
     
     category = "Other"
-    if "display" in issue_type_lower: category = "Display"
-    elif "video" in issue_type_lower or "ctv" in issue_type_lower or "ott" in issue_type_lower: category = "Video"
-    elif "celtra" in issue_type_lower: category = "Celtra"
+    
+    # STRICT CATEGORY MATCHING (Only exactly what you asked for)
+    if "display" in issue_type_lower: 
+        category = "Display"
+    elif any(keyword in issue_type_lower for keyword in ["video", "ctv", "ott"]): 
+        category = "Video"
+    elif "celtra" in issue_type_lower: 
+        category = "Celtra"
         
     assignee = fields.get('assignee')
     assignee_name = assignee.get('displayName', 'Unassigned') if assignee else "Unassigned"
@@ -234,12 +240,14 @@ for issue in raw_issues:
     # HTML Link for the Ticket ID
     jira_link = f'<a href="{domain}/browse/{ticket_key}" target="_blank">{ticket_key}</a>'
     
+    # Include an exact lower-case representation of the assignee for safe filtering
     rows.append({
         "TKTS-ID": jira_link,
         "Created Date": created_date,
         "TKTS-Type": issue_type_name,
         "Category": category,
         "Assignee": assignee_name,
+        "Assignee_Lower": assignee_name.lower().strip(),
         "Status": status_name.title(),
         "Is_Closed": is_closed
     })
@@ -251,8 +259,9 @@ if df.empty:
     st.stop()
 
 # --- FILTER BY TARGET POD/TEAM ---
-# This ensures we completely ignore tickets worked on by Ganesh, Merin, Adops-EA Group, etc.
-team_df = df[df['Assignee'].isin(VALID_TEAM)]
+# Uses the safe lower-case version of the assignee name to prevent missing tickets
+team_df = df[df['Assignee_Lower'].isin(VALID_TEAM)].copy()
+team_df.drop(columns=['Assignee_Lower'], inplace=True) # Cleanup
 
 if team_df.empty:
     st.warning("No tickets found for the specified team members.")
@@ -269,7 +278,6 @@ def build_progress_chart(share_val):
         tooltip=['Share']
     ).properties(height=40)
     
-    # Thick Red Target Line
     goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
         x='Goal:Q',
         tooltip=['Goal']
@@ -286,10 +294,10 @@ for idx, cat in enumerate(categories):
         with st.container(border=True):
             st.markdown(f"<h3 style='text-align:center; font-weight:600; margin-top:0;'>{cat}</h3>", unsafe_allow_html=True)
             
-            # Use the filtered team_df instead of the global df
             cat_df = team_df[team_df['Category'] == cat]
             total_team = len(cat_df)
-            user_done = len(cat_df[(cat_df['Assignee'] == TRACKED_USER) & (cat_df['Is_Closed'])])
+            
+            user_done = len(cat_df[(cat_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & (cat_df['Is_Closed'])])
             share = (user_done / total_team * 100) if total_team > 0 else 0
             
             m1, m2, m3 = st.columns(3)
@@ -308,7 +316,7 @@ summary_list = []
 for cat in categories:
     c_df = team_df[team_df['Category'] == cat]
     t = len(c_df)
-    d = len(c_df[(c_df['Assignee'] == TRACKED_USER) & (c_df['Is_Closed'])])
+    d = len(c_df[(c_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & (c_df['Is_Closed'])])
     share_val = (d/t*100) if t > 0 else 0
     summary_list.append({
         "Category": cat,
@@ -326,7 +334,6 @@ st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html
 # --- 7. AUDIT LOG ---
 st.markdown("### Ticket Audit Log")
 
-# Filter Audit log to only show the target team's tickets to match the counts above
 audit_df = team_df[team_df['Category'] != "Other"].drop(columns=['Is_Closed'])
 
 # Render the Audit HTML table (escape=False allows the hyperlinks to work)
