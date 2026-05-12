@@ -7,7 +7,7 @@ from requests.auth import HTTPBasicAuth
 
 # --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
 TRACKED_USER = "Jingyao Wang"
-st.set_page_config(page_title=f"{TRACKED_USER} - TKTS Tracker", layout="wide")
+st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
@@ -71,24 +71,24 @@ button {
     border-radius: 0px !important; 
 }
 
-/* Custom Metric Styling (Fixed squishing issue) */
+/* Custom Metric Styling */
 .custom-metric-box {
     text-align: center;
-    padding: 5px 0px; /* Reduced side padding */
+    padding: 5px 0px; 
 }
 .custom-metric-value {
-    font-size: 2.0rem; /* Slightly smaller to prevent overflow */
+    font-size: 2.0rem; 
     font-weight: 700;
     margin: 0;
     line-height: 1.2;
 }
 .custom-metric-label {
     font-size: 0.85rem;
-    font-weight: 600; /* Made slightly bolder for readability */
+    font-weight: 600; 
     color: #888;
     text-transform: uppercase;
-    letter-spacing: 0.5px; /* Reduced letter spacing */
-    white-space: nowrap; /* Forces text to stay on one line */
+    letter-spacing: 0.5px; 
+    white-space: nowrap; 
 }
 
 /* Custom HTML Tables */
@@ -155,7 +155,7 @@ set_altair_theme()
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
-    <h1>{TRACKED_USER}'s TKTS Tracker</h1>
+    <h1>{TRACKED_USER}'s OKR Tracker</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -271,14 +271,16 @@ def build_progress_chart(share_val):
     bar_color = '#00E676' if share_val >= TARGET_PERCENTAGE else '#58C0ED' 
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [TARGET_PERCENTAGE]})
     
+    # The bar map
     bar = alt.Chart(chart_data).mark_bar(size=24).encode(
         x=alt.X('Share:Q', scale=alt.Scale(domain=[0, 100]), title=None, axis=alt.Axis(labels=False, ticks=False)),
         color=alt.value(bar_color),
         tooltip=['Share']
     ).properties(height=40)
     
-    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
-        x='Goal:Q',
+    # THE FIX: Explicitly forcing the Goal line to share the identical 0-100 scale!
+    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=4).encode(
+        x=alt.X('Goal:Q', scale=alt.Scale(domain=[0, 100])),
         tooltip=['Goal']
     )
     return (bar + goal_line).configure_view(strokeWidth=0)
