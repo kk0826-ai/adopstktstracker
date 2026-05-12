@@ -7,7 +7,7 @@ from requests.auth import HTTPBasicAuth
 
 # --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
 TRACKED_USER = "Jingyao Wang"
-st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
+st.set_page_config(page_title=f"{TRACKED_USER} - TKTS Tracker", layout="wide")
 
 # --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
