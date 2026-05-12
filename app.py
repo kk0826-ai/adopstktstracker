@@ -273,7 +273,6 @@ if team_df.empty:
     st.stop()
 
 # --- 4. HELPER CHARTS ---
-# Updated to take target_val as an argument
 def build_progress_chart(share_val, target_val):
     bar_color = '#00E676' if share_val >= target_val else '#58C0ED' 
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [target_val]})
@@ -284,11 +283,13 @@ def build_progress_chart(share_val, target_val):
         tooltip=['Share']
     ).properties(height=40)
     
-    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=4).encode(
-        x=alt.X('Goal:Q', scale=alt.Scale(domain=[0, 100])),
+    # FIXED: Reverted to a standard Goal:Q mapped rule and explicitly share the axes to lock it in place.
+    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
+        x='Goal:Q',
         tooltip=['Goal']
     )
-    return (bar + goal_line).configure_view(strokeWidth=0)
+    
+    return alt.layer(bar, goal_line).resolve_scale(x='shared').configure_view(strokeWidth=0)
 
 
 # --- 5. DASHBOARD UI ---
@@ -311,7 +312,6 @@ for idx, cat in enumerate(categories):
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
-            # Fetch the dynamic target for this specific category
             target_val = TARGET_PERCENTAGES.get(cat, 0)
             
             if total_team > 0:
@@ -345,7 +345,6 @@ st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html
 # --- 7. AUDIT LOG WITH FILTERS ---
 st.markdown("### Ticket Audit Log")
 
-# Filter down to just the tracked user's tickets
 audit_df = team_df[
     (team_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & 
     (team_df['Category'] != "Other")
@@ -369,7 +368,6 @@ if type_filter:
 if cat_filter:
     audit_df = audit_df[audit_df['Category'].isin(cat_filter)]
 
-# Render the Audit HTML table (escape=False allows the hyperlinks to work)
 if audit_df.empty:
     st.info("No tickets match the selected filters.")
 else:
