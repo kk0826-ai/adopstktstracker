@@ -13,15 +13,6 @@ st.set_page_config(page_title=f"{TRACKED_USER} - OKR Tracker", layout="wide")
 OKR_GO_LIVE_DATE = "2026-04-01" 
 TARGET_PERCENTAGE = 20.0 
 
-# The specific pod/team members to include in the denominator
-VALID_TEAM = [
-    "Jingyao Wang",
-    "Simin Zheng", 
-    "Priyanka Shaw", 
-    "Tania Singh", 
-    "Roshni Subramanian"
-]
-
 # --- JIRA AUTH ---
 try:
     domain = st.secrets["JIRA_DOMAIN"].strip().rstrip('/')
@@ -250,13 +241,6 @@ if df.empty:
     st.warning("No data found for this period.")
     st.stop()
 
-# --- FILTER BY TARGET POD/TEAM ---
-# This ensures we completely ignore tickets worked on by Ganesh, Merin, Adops-EA Group, etc.
-team_df = df[df['Assignee'].isin(VALID_TEAM)]
-
-if team_df.empty:
-    st.warning("No tickets found for the specified team members.")
-    st.stop()
 
 # --- 4. HELPER CHARTS ---
 def build_progress_chart(share_val):
@@ -269,7 +253,7 @@ def build_progress_chart(share_val):
         tooltip=['Share']
     ).properties(height=40)
     
-    # Thick Red Target Line
+    # INCREASED THICKNESS AND BRIGHTNESS OF GOAL LINE
     goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
         x='Goal:Q',
         tooltip=['Goal']
@@ -286,8 +270,7 @@ for idx, cat in enumerate(categories):
         with st.container(border=True):
             st.markdown(f"<h3 style='text-align:center; font-weight:600; margin-top:0;'>{cat}</h3>", unsafe_allow_html=True)
             
-            # Use the filtered team_df instead of the global df
-            cat_df = team_df[team_df['Category'] == cat]
+            cat_df = df[df['Category'] == cat]
             total_team = len(cat_df)
             user_done = len(cat_df[(cat_df['Assignee'] == TRACKED_USER) & (cat_df['Is_Closed'])])
             share = (user_done / total_team * 100) if total_team > 0 else 0
@@ -295,7 +278,7 @@ for idx, cat in enumerate(categories):
             m1, m2, m3 = st.columns(3)
             m1.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-blue'>{share:.1f}%</p><p class='custom-metric-label'>Share</p></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
-            m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Team Total</p></div>", unsafe_allow_html=True)
+            m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
             if total_team > 0:
                 st.altair_chart(build_progress_chart(share), use_container_width=True)
@@ -306,7 +289,7 @@ st.divider()
 st.markdown("### Summary")
 summary_list = []
 for cat in categories:
-    c_df = team_df[team_df['Category'] == cat]
+    c_df = df[df['Category'] == cat]
     t = len(c_df)
     d = len(c_df[(c_df['Assignee'] == TRACKED_USER) & (c_df['Is_Closed'])])
     share_val = (d/t*100) if t > 0 else 0
@@ -326,8 +309,7 @@ st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html
 # --- 7. AUDIT LOG ---
 st.markdown("### Ticket Audit Log")
 
-# Filter Audit log to only show the target team's tickets to match the counts above
-audit_df = team_df[team_df['Category'] != "Other"].drop(columns=['Is_Closed'])
+audit_df = df[df['Category'] != "Other"].drop(columns=['Is_Closed'])
 
 # Render the Audit HTML table (escape=False allows the hyperlinks to work)
 audit_html = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
