@@ -342,11 +342,36 @@ summary_df = pd.DataFrame(summary_list)
 summary_html = summary_df.to_html(index=False, classes="custom-audit-table", escape=False)
 st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html=True)
 
-# --- 7. AUDIT LOG ---
-st.markdown("### Ticket Audit Log")
+# --- 7. AUDIT LOG WITH FILTERS ---
+st.markdown(f"### Ticket Audit Log ({TRACKED_USER})")
 
-audit_df = team_df[team_df['Category'] != "Other"].drop(columns=['Is_Closed'])
+# Filter down to just the tracked user's tickets
+audit_df = team_df[
+    (team_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & 
+    (team_df['Category'] != "Other")
+].drop(columns=['Is_Closed'])
+
+# Setup the filters UI
+filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+with filter_col1:
+    date_filter = st.multiselect("Filter by Created Date", sorted(audit_df['Created Date'].unique()))
+with filter_col2:
+    type_filter = st.multiselect("Filter by TKTS-Type", sorted(audit_df['TKTS-Type'].unique()))
+with filter_col3:
+    cat_filter = st.multiselect("Filter by Category", sorted(audit_df['Category'].unique()))
+
+# Apply filters if they are selected
+if date_filter:
+    audit_df = audit_df[audit_df['Created Date'].isin(date_filter)]
+if type_filter:
+    audit_df = audit_df[audit_df['TKTS-Type'].isin(type_filter)]
+if cat_filter:
+    audit_df = audit_df[audit_df['Category'].isin(cat_filter)]
 
 # Render the Audit HTML table (escape=False allows the hyperlinks to work)
-audit_html = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
-st.markdown(f'<div class="scrollable-table">{audit_html}</div>', unsafe_allow_html=True)
+if audit_df.empty:
+    st.info("No tickets match the selected filters.")
+else:
+    audit_html = audit_df.to_html(index=False, classes="custom-audit-table", escape=False)
+    st.markdown(f'<div class="scrollable-table">{audit_html}</div>', unsafe_allow_html=True)
