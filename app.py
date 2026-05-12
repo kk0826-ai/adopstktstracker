@@ -71,23 +71,24 @@ button {
     border-radius: 0px !important; 
 }
 
-/* Custom Metric Styling */
+/* Custom Metric Styling (Fixed squishing issue) */
 .custom-metric-box {
     text-align: center;
-    padding: 10px;
+    padding: 5px 0px; /* Reduced side padding */
 }
 .custom-metric-value {
-    font-size: 2.2rem;
+    font-size: 2.0rem; /* Slightly smaller to prevent overflow */
     font-weight: 700;
     margin: 0;
     line-height: 1.2;
 }
 .custom-metric-label {
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-size: 0.85rem;
+    font-weight: 600; /* Made slightly bolder for readability */
     color: #888;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px; /* Reduced letter spacing */
+    white-space: nowrap; /* Forces text to stay on one line */
 }
 
 /* Custom HTML Tables */
@@ -223,7 +224,7 @@ for issue in raw_issues:
     
     category = "Other"
     
-    # STRICT CATEGORY MATCHING (Only exactly what you asked for)
+    # STRICT CATEGORY MATCHING
     if "display" in issue_type_lower: 
         category = "Display"
     elif any(keyword in issue_type_lower for keyword in ["video", "ctv", "ott"]): 
@@ -240,7 +241,6 @@ for issue in raw_issues:
     # HTML Link for the Ticket ID
     jira_link = f'<a href="{domain}/browse/{ticket_key}" target="_blank">{ticket_key}</a>'
     
-    # Include an exact lower-case representation of the assignee for safe filtering
     rows.append({
         "TKTS-ID": jira_link,
         "Created Date": created_date,
@@ -259,7 +259,6 @@ if df.empty:
     st.stop()
 
 # --- FILTER BY TARGET POD/TEAM ---
-# Uses the safe lower-case version of the assignee name to prevent missing tickets
 team_df = df[df['Assignee_Lower'].isin(VALID_TEAM)].copy()
 team_df.drop(columns=['Assignee_Lower'], inplace=True) # Cleanup
 
@@ -303,7 +302,7 @@ for idx, cat in enumerate(categories):
             m1, m2, m3 = st.columns(3)
             m1.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-blue'>{share:.1f}%</p><p class='custom-metric-label'>Share</p></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
-            m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Team Total</p></div>", unsafe_allow_html=True)
+            m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
             if total_team > 0:
                 st.altair_chart(build_progress_chart(share), use_container_width=True)
