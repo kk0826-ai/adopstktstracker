@@ -5,17 +5,17 @@ import json
 import altair as alt
 from requests.auth import HTTPBasicAuth
 
-# --- 1. PAGE CONFIG ---
+# --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
 st.set_page_config(page_title="Master TKTS Tracker", layout="wide")
 
-# --- CONFIGURATION & TARGETS ---
+# --- CONFIGURATION ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
 
 # Master Dictionary mapping every team member to their specific goals
 USER_TARGETS = {
-    "Jingyao Wang": {"Display": 14.0, "Video": 14.0, "Celtra": 10.0, "SeenThis": 0.0},
+    "Jingyao Wang": {"Display": 14.0, "Video": 14.0, "Celtra": 10.0},
     "Priyanka Shaw": {"Display": 12.0, "Video": 12.0, "Celtra": 10.0, "SeenThis": 10.0},
-    "Pushyami": {"Display": 16.0, "Video": 16.0, "Celtra": 11.0, "SeenThis": 0.0},
+    "Pushyami": {"Display": 16.0, "Video": 16.0, "Celtra": 11.0},
     "Roshni Subramanian": {"Display": 12.0, "Video": 12.0, "Celtra": 10.0, "SeenThis": 10.0},
     "Simin Zheng": {"Display": 16.0, "Video": 16.0, "Celtra": 10.0, "SeenThis": 16.0},
     "Tania Singh": {"Display": 15.0, "Video": 15.0, "Celtra": 15.0, "SeenThis": 15.0}
@@ -52,7 +52,7 @@ h1, h2, h3, h4, h5, h6 {
     background-image: linear-gradient(rgba(14, 17, 23, 0.6), rgba(14, 17, 23, 0.8)), url('https://i.ibb.co/nMTJF4B9/vj-HZbu8-Imgur.jpg'); 
     background-size: cover; 
     background-position: center; 
-    margin-bottom: 2rem; 
+    margin-bottom: 1.5rem; 
     border-radius: 0px !important; 
     text-align: center;
 }
@@ -69,6 +69,11 @@ div[data-testid="stMetric"],
 }
 button { 
     border-radius: 0px !important; 
+}
+
+/* Make Dropdown selectboxes flat */
+div[data-baseweb="select"] > div {
+    border-radius: 0px !important;
 }
 
 /* Custom Metric Styling */
@@ -152,11 +157,19 @@ def set_altair_theme():
     alt.themes.enable("my_theme")
 set_altair_theme()
 
-# --- SIDEBAR: SELECT USER ---
-st.sidebar.markdown("### ⚙️ Tracker Controls")
-TRACKED_USER = st.sidebar.selectbox("Select Team Member", options=list(USER_TARGETS.keys()))
 
-# --- HEADER ---
+# --- 2. MAIN UI CONTROLS ---
+
+# Centered Dropdown for User Selection
+col_spacer1, col_center, col_spacer2 = st.columns([1, 2, 1])
+with col_center:
+    TRACKED_USER = st.selectbox(
+        "👤 Select Team Member:", 
+        options=list(USER_TARGETS.keys()), 
+        index=list(USER_TARGETS.keys()).index("Jingyao Wang") # Defaults to Jingyao
+    )
+
+# Dynamic Banner Title
 st.markdown(f"""
 <div class="header-container">
     <h1>{TRACKED_USER}'s TKTS Tracker</h1>
@@ -164,7 +177,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
-# --- 2. DATA LOADING ---
+# --- 3. DATA LOADING ---
 @st.cache_data(ttl=600)
 def fetch_jira_okr_data():
     all_issues = []
@@ -210,7 +223,7 @@ def fetch_jira_okr_data():
     progress_bar.empty()
     return all_issues
 
-# --- 3. PROCESSING ---
+# --- 4. PROCESSING ---
 raw_issues = fetch_jira_okr_data()
 rows = []
 DONE_STATUSES = ["closed", "done", "resolved", "campaign/request closed", "completed"]
@@ -219,7 +232,6 @@ for issue in raw_issues:
     fields = issue.get('fields', {})
     ticket_key = issue.get('key')
     
-    # Format Creation Date
     created_raw = fields.get('created')
     created_date = pd.to_datetime(created_raw).strftime('%d %b %Y') if created_raw else "Unknown"
     
@@ -228,7 +240,6 @@ for issue in raw_issues:
     
     category = "Other"
     
-    # ADDED SEENTHIS TO CATEGORY MATCHING
     if "display" in issue_type_lower: 
         category = "Display"
     elif any(keyword in issue_type_lower for keyword in ["video", "ctv", "ott"]): 
@@ -244,7 +255,6 @@ for issue in raw_issues:
     status_name = fields.get('status', {}).get('name', '').lower()
     is_closed = (status_name in DONE_STATUSES) or (fields.get('resolutiondate') is not None)
     
-    # HTML Link for the Ticket ID
     jira_link = f'<a href="{domain}/browse/{ticket_key}" target="_blank">{ticket_key}</a>'
     
     rows.append({
@@ -266,13 +276,13 @@ if df.empty:
 
 # --- FILTER BY TARGET POD/TEAM ---
 team_df = df[df['Assignee_Lower'].isin(VALID_TEAM)].copy()
-team_df.drop(columns=['Assignee_Lower'], inplace=True) # Cleanup
+team_df.drop(columns=['Assignee_Lower'], inplace=True)
 
 if team_df.empty:
     st.warning("No tickets found for the specified team members.")
     st.stop()
 
-# --- 4. HELPER CHARTS ---
+# --- 5. HELPER CHARTS ---
 def build_progress_chart(share_val, target_val):
     bar_color = '#00E676' if share_val >= target_val else '#58C0ED' 
     chart_data = pd.DataFrame({'Share': [share_val], 'Goal': [target_val]})
@@ -283,7 +293,7 @@ def build_progress_chart(share_val, target_val):
         tooltip=['Share']
     ).properties(height=40)
     
-    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
+    goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=4).encode(
         x=alt.X('Goal:Q', scale=alt.Scale(domain=[0, 100])),
         tooltip=['Goal']
     )
@@ -291,12 +301,17 @@ def build_progress_chart(share_val, target_val):
     return alt.layer(bar, goal_line).resolve_scale(x='shared').configure_view(strokeWidth=0)
 
 
-# --- 5. DASHBOARD UI ---
-# Expanded to 4 columns to include SeenThis
-categories = ["Display", "Video", "Celtra", "SeenThis"]
-cols = st.columns(4)
+# --- 6. DYNAMIC DASHBOARD UI ---
 
-for idx, cat in enumerate(categories):
+# Dynamically decide which categories to show based on the selected user
+active_categories = ["Display", "Video", "Celtra"]
+if TRACKED_USER in ["Priyanka Shaw", "Roshni Subramanian", "Simin Zheng", "Tania Singh"]:
+    active_categories.append("SeenThis")
+
+# Automatically sizes to 3 or 4 columns based on the list above
+cols = st.columns(len(active_categories))
+
+for idx, cat in enumerate(active_categories):
     with cols[idx]:
         with st.container(border=True):
             st.markdown(f"<h3 style='text-align:center; font-weight:600; margin-top:0;'>{cat}</h3>", unsafe_allow_html=True)
@@ -312,7 +327,6 @@ for idx, cat in enumerate(categories):
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
-            # Fetch the dynamic target for the selected user and specific category
             target_val = USER_TARGETS[TRACKED_USER].get(cat, 0)
             
             if total_team > 0:
@@ -320,38 +334,32 @@ for idx, cat in enumerate(categories):
 
 st.divider()
 
-# --- 6. DATA TABLES ---
+# --- 7. DATA TABLES ---
 st.markdown("### Summary")
 summary_list = []
-for cat in categories:
+for cat in active_categories: # Use the dynamic list here too!
     c_df = team_df[team_df['Category'] == cat]
     t = len(c_df)
     d = len(c_df[(c_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & (c_df['Is_Closed'])])
     share_val = (d/t*100) if t > 0 else 0
     target_val = USER_TARGETS[TRACKED_USER].get(cat, 0)
     
-    # If a user has a 0% goal (like Jingyao/Pushyami for SeenThis), update status appropriately
-    status_msg = "On Track" if share_val >= target_val else "Needs Attention"
-    if target_val == 0.0:
-        status_msg = "N/A (No Target)"
-
     summary_list.append({
         "Category": cat,
         "Total Team Tickets": t,
         f"{TRACKED_USER.split()[0]} Completed": d,
         "Current Share": f"{share_val:.1f}%",
         "Target": f"{target_val}%",
-        "Status": status_msg
+        "Status": "On Track" if share_val >= target_val else "Needs Attention"
     })
 
 summary_df = pd.DataFrame(summary_list)
 summary_html = summary_df.to_html(index=False, classes="custom-audit-table", escape=False)
 st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html=True)
 
-# --- 7. AUDIT LOG WITH FILTERS ---
+# --- 8. AUDIT LOG WITH FILTERS ---
 st.markdown("### Ticket Audit Log")
 
-# Filter down to just the actively tracked user's tickets
 audit_df = team_df[
     (team_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & 
     (team_df['Category'] != "Other")
@@ -367,7 +375,7 @@ with filter_col2:
 with filter_col3:
     cat_filter = st.multiselect("Filter by Category", sorted(audit_df['Category'].unique()))
 
-# Apply filters if they are selected
+# Apply filters
 if date_filter:
     audit_df = audit_df[audit_df['Created Date'].isin(date_filter)]
 if type_filter:
