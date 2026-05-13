@@ -5,29 +5,23 @@ import json
 import altair as alt
 from requests.auth import HTTPBasicAuth
 
-# --- 1. PAGE CONFIG (Must be the absolute first Streamlit command) ---
-TRACKED_USER = "Jingyao Wang"
-st.set_page_config(page_title=f"{TRACKED_USER} - TKTS Tracker", layout="wide")
+# --- 1. PAGE CONFIG ---
+st.set_page_config(page_title="Master TKTS Tracker", layout="wide")
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION & TARGETS ---
 OKR_GO_LIVE_DATE = "2026-04-01" 
 
-# Dynamic Targets for each category
-TARGET_PERCENTAGES = {
-    "Display": 14.0,
-    "Video": 14.0,
-    "Celtra": 10.0
+# Master Dictionary mapping every team member to their specific goals
+USER_TARGETS = {
+    "Jingyao Wang": {"Display": 14.0, "Video": 14.0, "Celtra": 10.0, "SeenThis": 0.0},
+    "Priyanka Shaw": {"Display": 12.0, "Video": 12.0, "Celtra": 10.0, "SeenThis": 10.0},
+    "Pushyami": {"Display": 16.0, "Video": 16.0, "Celtra": 11.0, "SeenThis": 0.0},
+    "Roshni Subramanian": {"Display": 12.0, "Video": 12.0, "Celtra": 10.0, "SeenThis": 10.0},
+    "Simin Zheng": {"Display": 16.0, "Video": 16.0, "Celtra": 10.0, "SeenThis": 16.0},
+    "Tania Singh": {"Display": 15.0, "Video": 15.0, "Celtra": 15.0, "SeenThis": 15.0}
 }
 
-# The exact 6 team members
-VALID_TEAM = [name.lower().strip() for name in [
-    "Simin Zheng", 
-    "Priyanka Shaw", 
-    "Tania Singh", 
-    "Roshni Subramanian", 
-    "Jingyao Wang", 
-    "Pushyami"
-]]
+VALID_TEAM = [name.lower().strip() for name in USER_TARGETS.keys()]
 
 # --- JIRA AUTH ---
 try:
@@ -158,6 +152,10 @@ def set_altair_theme():
     alt.themes.enable("my_theme")
 set_altair_theme()
 
+# --- SIDEBAR: SELECT USER ---
+st.sidebar.markdown("### ⚙️ Tracker Controls")
+TRACKED_USER = st.sidebar.selectbox("Select Team Member", options=list(USER_TARGETS.keys()))
+
 # --- HEADER ---
 st.markdown(f"""
 <div class="header-container">
@@ -230,13 +228,15 @@ for issue in raw_issues:
     
     category = "Other"
     
-    # STRICT CATEGORY MATCHING
+    # ADDED SEENTHIS TO CATEGORY MATCHING
     if "display" in issue_type_lower: 
         category = "Display"
     elif any(keyword in issue_type_lower for keyword in ["video", "ctv", "ott"]): 
         category = "Video"
     elif "celtra" in issue_type_lower: 
         category = "Celtra"
+    elif "seenthis" in issue_type_lower:
+        category = "SeenThis"
         
     assignee = fields.get('assignee')
     assignee_name = assignee.get('displayName', 'Unassigned') if assignee else "Unassigned"
@@ -283,9 +283,8 @@ def build_progress_chart(share_val, target_val):
         tooltip=['Share']
     ).properties(height=40)
     
-    # FIXED: Reverted to a standard Goal:Q mapped rule and explicitly share the axes to lock it in place.
     goal_line = alt.Chart(chart_data).mark_rule(color='#FF0000', strokeWidth=5, opacity=1).encode(
-        x='Goal:Q',
+        x=alt.X('Goal:Q', scale=alt.Scale(domain=[0, 100])),
         tooltip=['Goal']
     )
     
@@ -293,8 +292,9 @@ def build_progress_chart(share_val, target_val):
 
 
 # --- 5. DASHBOARD UI ---
-categories = ["Display", "Video", "Celtra"]
-cols = st.columns(3)
+# Expanded to 4 columns to include SeenThis
+categories = ["Display", "Video", "Celtra", "SeenThis"]
+cols = st.columns(4)
 
 for idx, cat in enumerate(categories):
     with cols[idx]:
@@ -312,7 +312,8 @@ for idx, cat in enumerate(categories):
             m2.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-green'>{user_done}</p><p class='custom-metric-label'>Done</p></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='custom-metric-box'><p class='custom-metric-value val-orange'>{total_team}</p><p class='custom-metric-label'>Total</p></div>", unsafe_allow_html=True)
             
-            target_val = TARGET_PERCENTAGES.get(cat, 0)
+            # Fetch the dynamic target for the selected user and specific category
+            target_val = USER_TARGETS[TRACKED_USER].get(cat, 0)
             
             if total_team > 0:
                 st.altair_chart(build_progress_chart(share, target_val), use_container_width=True)
@@ -327,15 +328,20 @@ for cat in categories:
     t = len(c_df)
     d = len(c_df[(c_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & (c_df['Is_Closed'])])
     share_val = (d/t*100) if t > 0 else 0
-    target_val = TARGET_PERCENTAGES.get(cat, 0)
+    target_val = USER_TARGETS[TRACKED_USER].get(cat, 0)
     
+    # If a user has a 0% goal (like Jingyao/Pushyami for SeenThis), update status appropriately
+    status_msg = "On Track" if share_val >= target_val else "Needs Attention"
+    if target_val == 0.0:
+        status_msg = "N/A (No Target)"
+
     summary_list.append({
         "Category": cat,
         "Total Team Tickets": t,
-        "Jingyao Completed": d,
+        f"{TRACKED_USER.split()[0]} Completed": d,
         "Current Share": f"{share_val:.1f}%",
         "Target": f"{target_val}%",
-        "Status": "On Track" if share_val >= target_val else "Needs Attention"
+        "Status": status_msg
     })
 
 summary_df = pd.DataFrame(summary_list)
@@ -345,6 +351,7 @@ st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html
 # --- 7. AUDIT LOG WITH FILTERS ---
 st.markdown("### Ticket Audit Log")
 
+# Filter down to just the actively tracked user's tickets
 audit_df = team_df[
     (team_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & 
     (team_df['Category'] != "Other")
