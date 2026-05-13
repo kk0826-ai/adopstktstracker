@@ -160,7 +160,10 @@ set_altair_theme()
 
 # --- 2. MAIN UI CONTROLS ---
 
-# Centered Dropdown for User Selection
+# Step 1: Create a placeholder for the banner at the very top
+header_placeholder = st.empty()
+
+# Step 2: Render the dropdown BELOW the banner
 col_spacer1, col_center, col_spacer2 = st.columns([1, 2, 1])
 with col_center:
     TRACKED_USER = st.selectbox(
@@ -169,8 +172,8 @@ with col_center:
         index=list(USER_TARGETS.keys()).index("Jingyao Wang") # Defaults to Jingyao
     )
 
-# Dynamic Banner Title
-st.markdown(f"""
+# Step 3: Inject the dynamic banner into the placeholder at the top
+header_placeholder.markdown(f"""
 <div class="header-container">
     <h1>{TRACKED_USER}'s TKTS Tracker</h1>
 </div>
@@ -337,7 +340,7 @@ st.divider()
 # --- 7. DATA TABLES ---
 st.markdown("### Summary")
 summary_list = []
-for cat in active_categories: # Use the dynamic list here too!
+for cat in active_categories: 
     c_df = team_df[team_df['Category'] == cat]
     t = len(c_df)
     d = len(c_df[(c_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & (c_df['Is_Closed'])])
@@ -360,9 +363,11 @@ st.markdown(f'<div class="static-table">{summary_html}</div>', unsafe_allow_html
 # --- 8. AUDIT LOG WITH FILTERS ---
 st.markdown("### Ticket Audit Log")
 
+# FILTER FIX: We now explicitly use 'active_categories' instead of just dropping 'Other'.
+# This perfectly removes 'SeenThis' tickets for Jingyao and Pushyami!
 audit_df = team_df[
     (team_df['Assignee'].str.lower().str.strip() == TRACKED_USER.lower().strip()) & 
-    (team_df['Category'] != "Other")
+    (team_df['Category'].isin(active_categories))
 ].drop(columns=['Is_Closed'])
 
 # Setup the filters UI
